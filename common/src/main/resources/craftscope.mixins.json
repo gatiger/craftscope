@@ -7,7 +7,7 @@
   "mixins": [],
   "client": [
     "MixinMinecraft",
-    "MixinInventoryScreen",
+    "MixinAbstractContainerScreen",
     "ScreenAccessor",
     "ScreenChildrenAccessor",
     "AbstractContainerScreenAccessor"

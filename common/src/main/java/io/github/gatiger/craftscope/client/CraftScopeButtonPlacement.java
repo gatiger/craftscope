@@ -71,6 +71,16 @@ public final class CraftScopeButtonPlacement {
         return candidates.getFirst();
     }
 
+    public static Position getCustomPosition(
+            int left,
+            int top
+    ) {
+        return new Position(
+                left + CraftScopeClientConfig.getCustomXOffset(),
+                top + CraftScopeClientConfig.getCustomYOffset()
+        );
+    }
+
     private static boolean overlapsExistingWidget(
             Position candidate,
             int buttonWidth,

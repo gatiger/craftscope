@@ -1,6 +1,8 @@
 package io.github.gatiger.craftscope;
 
 import net.fabricmc.api.ModInitializer;
+import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
+import net.fabricmc.loader.api.FabricLoader;
 
 public class CraftScope implements ModInitializer {
 
@@ -10,6 +12,10 @@ public class CraftScope implements ModInitializer {
         // This method is invoked by the Fabric mod loader when it is ready
         // to load your mod. You can access Fabric and Common code in this
         // project.
+
+        CraftScopeClientConfigManager.load(
+                FabricLoader.getInstance().getConfigDir()
+        );
 
         // Use Fabric to bootstrap the Common mod.
         Constants.LOG.info("Hello Fabric world!");

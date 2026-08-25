@@ -1,5 +1,7 @@
 package io.github.gatiger.craftscope;
 
+import io.github.gatiger.craftscope.client.CraftScopeClientConfig;
+import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -18,8 +20,51 @@ public class CraftScopeScreen extends Screen {
     protected void init() {
         super.init();
 
-        int buttonWidth = 100;
+        int buttonWidth = 150;
         int buttonHeight = 20;
+
+        int centerX = width / 2;
+        int startY = 80;
+
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("Move Inventory Tab"),
+                                button -> {
+                                    CraftScopeClientConfig.setMoveTabMode(true);
+                                    minecraft.setScreen(parent);
+                                }
+                        )
+                        .bounds(
+                                centerX - buttonWidth / 2,
+                                startY,
+                                buttonWidth,
+                                buttonHeight
+                        )
+                        .build()
+        );
+
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("Reset to Automatic"),
+                                button -> {
+                                    CraftScopeClientConfig.setPlacementMode(
+                                            CraftScopeClientConfig.PlacementMode.AUTO
+                                    );
+
+                                    CraftScopeClientConfig.setMoveTabMode(false);
+                                    CraftScopeClientConfigManager.save();
+
+                                    minecraft.setScreen(parent);
+                                }
+                        )
+                        .bounds(
+                                centerX - buttonWidth / 2,
+                                startY + 28,
+                                buttonWidth,
+                                buttonHeight
+                        )
+                        .build()
+        );
 
         addRenderableWidget(
                 Button.builder(
@@ -27,18 +72,28 @@ public class CraftScopeScreen extends Screen {
                                 button -> minecraft.setScreen(parent)
                         )
                         .bounds(
-                                (width - buttonWidth) / 2,
+                                centerX - 50,
                                 height - 40,
-                                buttonWidth,
-                                buttonHeight
+                                100,
+                                20
                         )
                         .build()
         );
     }
 
     @Override
-    public void render(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+    public void render(
+            GuiGraphics graphics,
+            int mouseX,
+            int mouseY,
+            float partialTick
+    ) {
+        renderBackground(
+                graphics,
+                mouseX,
+                mouseY,
+                partialTick
+        );
 
         graphics.drawCenteredString(
                 font,
@@ -52,11 +107,30 @@ public class CraftScopeScreen extends Screen {
                 font,
                 "See the whole craft.",
                 width / 2,
-                50,
+                48,
                 0xAAAAAA
         );
 
-        super.render(graphics, mouseX, mouseY, partialTick);
+        String placementText =
+                CraftScopeClientConfig.getPlacementMode()
+                        == CraftScopeClientConfig.PlacementMode.AUTO
+                                ? "Tab Placement: Automatic"
+                                : "Tab Placement: Custom";
+
+        graphics.drawCenteredString(
+                font,
+                placementText,
+                width / 2,
+                64,
+                0xCCCCCC
+        );
+
+        super.render(
+                graphics,
+                mouseX,
+                mouseY,
+                partialTick
+        );
     }
 
     @Override
