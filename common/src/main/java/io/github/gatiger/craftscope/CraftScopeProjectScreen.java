@@ -3,8 +3,9 @@ package io.github.gatiger.craftscope;
 import io.github.gatiger.craftscope.client.CraftScopeTargetItemReceiver;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeResolver;
-import io.github.gatiger.craftscope.recipe.CraftScopeResolvedIngredient;
+import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -15,14 +16,14 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-
 public class CraftScopeProjectScreen extends Screen
         implements CraftScopeTargetItemReceiver {
 
     private static final int TARGET_SLOT_SIZE = 24;
+
+    private static final int TREE_START_Y = 175;
+    private static final int TREE_ROW_HEIGHT = 20;
+    private static final int TREE_INDENT = 18;
 
     private final Screen parent;
     private final CraftScopeProject project;
@@ -63,7 +64,9 @@ public class CraftScopeProjectScreen extends Screen
         );
 
         quantityField.setValue(
-                Integer.toString(project.getTargetCount())
+                Integer.toString(
+                        project.getTargetCount()
+                )
         );
 
         quantityField.setFilter(
@@ -80,7 +83,8 @@ public class CraftScopeProjectScreen extends Screen
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("-"),
-                                button -> craftscope$changeQuantity(-1)
+                                button ->
+                                        craftscope$changeQuantity(-1)
                         )
                         .bounds(
                                 centerX - 50,
@@ -94,7 +98,8 @@ public class CraftScopeProjectScreen extends Screen
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("+"),
-                                button -> craftscope$changeQuantity(1)
+                                button ->
+                                        craftscope$changeQuantity(1)
                         )
                         .bounds(
                                 centerX + 30,
@@ -108,7 +113,8 @@ public class CraftScopeProjectScreen extends Screen
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Back"),
-                                button -> minecraft.setScreen(parent)
+                                button ->
+                                        minecraft.setScreen(parent)
                         )
                         .bounds(
                                 centerX - 50,
@@ -120,12 +126,17 @@ public class CraftScopeProjectScreen extends Screen
         );
     }
 
-    private void craftscope$changeQuantity(int amount) {
+    private void craftscope$changeQuantity(
+            int amount
+    ) {
         int current =
                 craftscope$getQuantityFromField();
 
         int updated =
-                Math.max(1, current + amount);
+                Math.max(
+                        1,
+                        current + amount
+                );
 
         quantityField.setValue(
                 Integer.toString(updated)
@@ -149,7 +160,9 @@ public class CraftScopeProjectScreen extends Screen
     private void craftscope$quantityChanged(
             String value
     ) {
-        if (value == null || value.isEmpty()) {
+        if (value == null
+                || value.isEmpty()) {
+
             return;
         }
 
@@ -205,6 +218,7 @@ public class CraftScopeProjectScreen extends Screen
         );
 
         if (project.getTargetItemId().isEmpty()) {
+
             graphics.drawCenteredString(
                     font,
                     "Drop an item here from JEI/EMI",
@@ -222,8 +236,10 @@ public class CraftScopeProjectScreen extends Screen
                 0xCCCCCC
         );
 
-        renderImmediateIngredients(
-                graphics
+        renderRecipeTree(
+                graphics,
+                mouseX,
+                mouseY
         );
     }
 
@@ -315,8 +331,10 @@ public class CraftScopeProjectScreen extends Screen
         }
     }
 
-    private void renderImmediateIngredients(
-            GuiGraphics graphics
+    private void renderRecipeTree(
+            GuiGraphics graphics,
+            int mouseX,
+            int mouseY
     ) {
         ItemStack targetStack =
                 getTargetStack();
@@ -325,102 +343,155 @@ public class CraftScopeProjectScreen extends Screen
             return;
         }
 
-        List<CraftScopeResolvedIngredient> ingredients =
-                CraftScopeRecipeResolver
-                        .resolveImmediateIngredients(
-                                targetStack,
-                                project.getTargetCount()
-                        );
+        CraftScopeRecipeTree tree =
+                CraftScopeRecipeResolver.resolveTree(
+                        targetStack,
+                        project.getTargetCount()
+                );
 
-        int startY = 175;
-
-        if (ingredients.isEmpty()) {
-            graphics.drawCenteredString(
-                    font,
-                    "No supported crafting recipe found.",
-                    width / 2,
-                    startY,
-                    0x888888
-            );
+        if (tree == null
+                || tree.getRoot() == null) {
 
             return;
         }
 
-        Map<String, CraftScopeResolvedIngredient> combined =
-                new LinkedHashMap<>();
-
-        for (CraftScopeResolvedIngredient ingredient :
-                ingredients) {
-
-            ResourceLocation id =
-                    BuiltInRegistries.ITEM.getKey(
-                            ingredient.stack().getItem()
-                    );
-
-            String key =
-                    id.toString();
-
-            CraftScopeResolvedIngredient existing =
-                    combined.get(key);
-
-            if (existing == null) {
-
-                combined.put(
-                        key,
-                        ingredient
-                );
-
-            } else {
-
-                combined.put(
-                        key,
-                        new CraftScopeResolvedIngredient(
-                                existing.stack(),
-                                existing.requiredCount()
-                                        + ingredient.requiredCount()
-                        )
-                );
-            }
-        }
-
         graphics.drawCenteredString(
                 font,
-                "Immediate Materials",
+                "Recipe Tree",
                 width / 2,
-                startY,
+                TREE_START_Y,
                 0xFFFFFF
         );
 
-        int rowY =
-                startY + 18;
+        int treeLeft =
+                Math.max(
+                        20,
+                        width / 2 - 120
+                );
 
-        for (CraftScopeResolvedIngredient ingredient :
-                combined.values()) {
+        int firstRowY =
+                TREE_START_Y + 18;
 
-            ItemStack stack =
-                    ingredient.stack();
+        renderRecipeNode(
+                graphics,
+                tree.getRoot(),
+                0,
+                treeLeft,
+                firstRowY,
+                mouseX,
+                mouseY
+        );
+    }
 
-            graphics.renderItem(
-                    stack,
-                    width / 2 - 70,
-                    rowY - 4
-            );
+    private int renderRecipeNode(
+            GuiGraphics graphics,
+            CraftScopeRecipeNode node,
+            int depth,
+            int treeLeft,
+            int rowY,
+            int mouseX,
+            int mouseY
+    ) {
+        /*
+         * Leave room at the bottom for the Back button.
+         *
+         * Scrolling will be added after we confirm the
+         * recursive tree itself is resolving correctly.
+         */
+        if (rowY > height - 65) {
+            return rowY;
+        }
 
-            String text =
-                    stack.getHoverName().getString()
-                            + " x"
-                            + ingredient.requiredCount();
+        ItemStack stack =
+                node.getStack();
+
+        int indent =
+                depth * TREE_INDENT;
+
+        int iconX =
+                treeLeft + indent;
+
+        /*
+         * Draw a simple tree branch indicator.
+         *
+         * This is intentionally basic for the first tree
+         * implementation. Later we'll replace this with
+         * proper expandable/collapsible tree controls.
+         */
+        if (depth > 0) {
 
             graphics.drawString(
                     font,
-                    text,
-                    width / 2 - 48,
-                    rowY,
-                    0xCCCCCC
+                    "└",
+                    iconX - 10,
+                    rowY + 4,
+                    0x777777
             );
-
-            rowY += 20;
         }
+
+        graphics.renderItem(
+                stack,
+                iconX,
+                rowY
+        );
+
+        String text =
+                stack.getHoverName().getString()
+                        + " x"
+                        + node.getRequiredCount();
+
+        int textColor =
+                node.isCraftable()
+                        ? 0xFFFFFF
+                        : 0xCCCCCC;
+
+        graphics.drawString(
+                font,
+                text,
+                iconX + 20,
+                rowY + 4,
+                textColor
+        );
+
+        /*
+         * Tooltip for every item in the tree.
+         */
+        if (mouseX >= iconX
+                && mouseX < iconX + 16
+                && mouseY >= rowY
+                && mouseY < rowY + 16) {
+
+            graphics.renderTooltip(
+                    font,
+                    stack,
+                    mouseX,
+                    mouseY
+            );
+        }
+
+        int nextY =
+                rowY + TREE_ROW_HEIGHT;
+
+        for (CraftScopeRecipeNode child :
+                node.getChildren()) {
+
+            nextY =
+                    renderRecipeNode(
+                            graphics,
+                            child,
+                            depth + 1,
+                            treeLeft,
+                            nextY,
+                            mouseX,
+                            mouseY
+                    );
+
+            if (nextY > height - 65) {
+                break;
+            }
+        }
+
+        return nextY;
     }
 
     private ItemStack getTargetStack() {
