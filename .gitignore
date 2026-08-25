@@ -1,16 +1,23 @@
-# Gradle
+# Gradle caches
 .gradle/
+**/.gradle/
+
+# Build output
+build/
 **/build/
 
-# Loom / Minecraft dev caches
-loom-cache/
-**/loom-cache/
+# Minecraft development run directories
 run/
+runs/
 **/run/
+**/runs/
 
 # Java
 *.class
 *.jar
+
+# Keep the Gradle wrapper JAR
+!gradle/wrapper/gradle-wrapper.jar
 
 # IDEs
 .vscode/
@@ -24,6 +31,6 @@ run/
 .DS_Store
 Thumbs.db
 
-# Crash logs
+# JVM crash logs
 hs_err_pid*
 replay_pid*

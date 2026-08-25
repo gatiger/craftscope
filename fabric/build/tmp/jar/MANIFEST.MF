@@ -1,9 +1,0 @@
-Manifest-Version: 1.0
-Specification-Title: CraftScope
-Specification-Vendor: gatiger
-Specification-Version: 0.0.1
-Implementation-Title: fabric
-Implementation-Version: 0.0.1
-Implementation-Vendor: gatiger
-Built-On-Minecraft: 1.21.1
-

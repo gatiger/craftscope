@@ -1,1 +1,0 @@
-packageSearchIndex = [{"l":"All Packages","u":"allpackages-index.html"},{"l":"io.github.gatiger.craftscope"},{"l":"io.github.gatiger.craftscope.client"},{"l":"io.github.gatiger.craftscope.mixin"},{"l":"io.github.gatiger.craftscope.platform"},{"l":"io.github.gatiger.craftscope.platform.services"}];updateSearchResults();
