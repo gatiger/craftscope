@@ -47,34 +47,29 @@ public class CraftScopeProjectScreen extends Screen
      * Nodes start collapsed.
      *
      * Expanded state currently lasts only while this project
-     * screen is open.
+     * screen remains open.
      */
     private final Set<String> expandedNodes =
             new HashSet<>();
 
     /*
-     * Per-node recipe overrides.
+     * Active per-node recipe overrides.
      *
-     * Example:
-     *
-     * root/1:minecraft:stick
-     *     -> minecraft:stick_from_bamboo
-     *
-     * These are intentionally screen-session-only for now.
+     * These are loaded from the CraftScopeProject when this
+     * screen is created and saved whenever the player changes
+     * a recipe.
      */
     private final Map<String, ResourceLocation> recipeOverrides =
             new HashMap<>();
 
     /*
-     * Keep the original ranked recipe order for each node.
+     * Stable ranked recipe choices for each node.
      *
-     * Once a player switches away from the default recipe,
-     * the resolver reports the selected recipe first. This
-     * cache lets the UI preserve a stable:
+     * The resolver reports the currently selected recipe as
+     * the preferred recipe for the rebuilt node. This cache
+     * preserves the original order so the selector remains:
      *
      * [1/2] -> [2/2] -> [1/2]
-     *
-     * order.
      */
     private final Map<String, List<ResourceLocation>> recipeChoices =
             new HashMap<>();
@@ -96,6 +91,28 @@ public class CraftScopeProjectScreen extends Screen
 
         this.parent = parent;
         this.project = project;
+
+        loadRecipeOverrides();
+    }
+
+    private void loadRecipeOverrides() {
+        recipeOverrides.clear();
+
+        for (Map.Entry<String, String> entry :
+                project.getRecipeOverrides().entrySet()) {
+
+            ResourceLocation recipeId =
+                    ResourceLocation.tryParse(
+                            entry.getValue()
+                    );
+
+            if (recipeId != null) {
+                recipeOverrides.put(
+                        entry.getKey(),
+                        recipeId
+                );
+            }
+        }
     }
 
     @Override
@@ -207,8 +224,8 @@ public class CraftScopeProjectScreen extends Screen
     }
 
     /*
-     * Store the ranked recipe order the first time we encounter
-     * a node.
+     * Store the ranked recipe order the first time a node is
+     * encountered.
      */
     private void populateRecipeChoices() {
         if (currentTree == null
@@ -234,13 +251,82 @@ public class CraftScopeProjectScreen extends Screen
             List<ResourceLocation> choices =
                     new ArrayList<>();
 
-            choices.add(
-                    node.getPreferredRecipeId()
-            );
+            /*
+             * If this project already has an override, the
+             * resolver reports that selected recipe first.
+             *
+             * We want the normal automatically preferred
+             * recipe to remain position 1 in the UI.
+             *
+             * The resolver's alternatives list contains every
+             * other recipe, so reconstruct the list and, when
+             * possible, put the saved override after the first
+             * normal alternative.
+             */
+            ResourceLocation selected =
+                    node.getPreferredRecipeId();
 
-            choices.addAll(
-                    node.getAlternativeRecipeIds()
-            );
+            String savedOverrideString =
+                    project.getRecipeOverride(
+                            nodePath
+                    );
+
+            ResourceLocation savedOverride =
+                    savedOverrideString == null
+                            ? null
+                            : ResourceLocation.tryParse(
+                                    savedOverrideString
+                            );
+
+            if (savedOverride == null) {
+
+                choices.add(selected);
+
+                choices.addAll(
+                        node.getAlternativeRecipeIds()
+                );
+
+            } else {
+
+                List<ResourceLocation> allRecipes =
+                        new ArrayList<>(
+                                node.getAlternativeRecipeIds()
+                        );
+
+                /*
+                 * The selected override is omitted from
+                 * alternativeRecipeIds, so put it back into
+                 * the complete set.
+                 */
+                allRecipes.add(savedOverride);
+
+                /*
+                 * The resolver's alternatives are ranked.
+                 * The first alternative is therefore normally
+                 * CraftScope's automatic/default choice.
+                 */
+                ResourceLocation defaultRecipe = null;
+
+                for (ResourceLocation id :
+                        node.getAlternativeRecipeIds()) {
+
+                    if (!id.equals(savedOverride)) {
+                        defaultRecipe = id;
+                        break;
+                    }
+                }
+
+                if (defaultRecipe != null) {
+                    choices.add(defaultRecipe);
+                }
+
+                for (ResourceLocation id : allRecipes) {
+
+                    if (!choices.contains(id)) {
+                        choices.add(id);
+                    }
+                }
+            }
 
             recipeChoices.put(
                     nodePath,
@@ -321,6 +407,7 @@ public class CraftScopeProjectScreen extends Screen
             }
 
             project.setTargetCount(quantity);
+
             CraftScopeProjectManager.save();
 
             rebuildTree();
@@ -1151,7 +1238,8 @@ public class CraftScopeProjectScreen extends Screen
                         + node.getRequiredCount();
 
         /*
-         * Check the recipe selector before the expand arrow.
+         * Check the alternate-recipe selector before checking
+         * the tree expand/collapse arrow.
          */
         if (isRecipeSelectorClicked(
                 node,
@@ -1334,12 +1422,17 @@ public class CraftScopeProjectScreen extends Screen
                 choices.get(nextIndex);
 
         /*
-         * If we're back on the original preferred recipe,
-         * the override is unnecessary.
+         * Recipe index 0 is CraftScope's preferred/default
+         * recipe. It does not need to be stored as an
+         * override.
          */
         if (nextIndex == 0) {
 
             recipeOverrides.remove(nodePath);
+
+            project.removeRecipeOverride(
+                    nodePath
+            );
 
         } else {
 
@@ -1347,16 +1440,25 @@ public class CraftScopeProjectScreen extends Screen
                     nodePath,
                     nextRecipe
             );
+
+            project.setRecipeOverride(
+                    nodePath,
+                    nextRecipe.toString()
+            );
         }
 
         /*
-         * A different recipe may produce completely different
-         * child nodes, so any selections underneath this node
-         * are no longer guaranteed to refer to the same branch.
+         * Changing a recipe can completely replace this
+         * node's children.
+         *
+         * Any recipe selections below this point may therefore
+         * refer to branches that no longer exist.
          */
         clearDescendantRecipeState(
                 nodePath
         );
+
+        CraftScopeProjectManager.save();
 
         rebuildTree();
     }
@@ -1386,6 +1488,24 @@ public class CraftScopeProjectScreen extends Screen
                         key ->
                                 key.startsWith(prefix)
                 );
+
+        List<String> savedDescendants =
+                new ArrayList<>();
+
+        for (String key :
+                project.getRecipeOverrides()
+                        .keySet()) {
+
+            if (key.startsWith(prefix)) {
+                savedDescendants.add(key);
+            }
+        }
+
+        for (String key :
+                savedDescendants) {
+
+            project.removeRecipeOverride(key);
+        }
     }
 
     @Override
@@ -1492,13 +1612,20 @@ public class CraftScopeProjectScreen extends Screen
                 itemId.toString()
         );
 
-        CraftScopeProjectManager.save();
+        /*
+         * A different target produces a completely different
+         * recipe tree, so recipe selections belonging to the
+         * previous target must not carry over.
+         */
+        project.clearRecipeOverrides();
 
         expandedNodes.clear();
         recipeOverrides.clear();
         recipeChoices.clear();
 
         treeScroll = 0;
+
+        CraftScopeProjectManager.save();
 
         rebuildTree();
     }
