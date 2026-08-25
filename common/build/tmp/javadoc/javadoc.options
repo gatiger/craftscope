@@ -4,6 +4,7 @@
 -windowtitle 'common 0.0.1 API'
 -doctitle 'common 0.0.1 API'
 -notimestamp 
+'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\client\\CraftScopeButtonPlacement.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\CommonClass.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\Constants.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\CraftScopeScreen.java'
@@ -11,5 +12,6 @@
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\MixinInventoryScreen.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\MixinMinecraft.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\ScreenAccessor.java'
+'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\ScreenChildrenAccessor.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\platform\\services\\IPlatformHelper.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\platform\\Services.java'

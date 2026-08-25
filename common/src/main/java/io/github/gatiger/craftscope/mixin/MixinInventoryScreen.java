@@ -9,6 +9,9 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+import io.github.gatiger.craftscope.client.CraftScopeButtonPlacement;
+import java.util.List;
+import net.minecraft.client.gui.components.events.GuiEventListener;
 
 @Mixin(InventoryScreen.class)
 public abstract class MixinInventoryScreen {
@@ -25,13 +28,24 @@ public abstract class MixinInventoryScreen {
 
         int buttonWidth = 16;
         int buttonHeight = 22;
+        
+        
+        List<? extends GuiEventListener> existingWidgets =
+                ((ScreenChildrenAccessor) screen).craftscope$getChildren();
 
-        /*
-        * Attach CraftScope like a tab to the right edge of the inventory panel.
-        * A few pixels remain over the panel so it looks integrated.
-        */
-        int x = left + container.craftscope$getImageWidth() - 4;
-        int y = top + 62;
+        CraftScopeButtonPlacement.Position position =
+                CraftScopeButtonPlacement.findBestPosition(
+                        left,
+                        top,
+                        container.craftscope$getImageWidth(),
+                        container.craftscope$getImageHeight(),
+                        buttonWidth,
+                        buttonHeight,
+                        existingWidgets
+                );
+
+        int x = position.x();
+        int y = position.y();
 
         Button button = Button.builder(
                 Component.literal("C"),
