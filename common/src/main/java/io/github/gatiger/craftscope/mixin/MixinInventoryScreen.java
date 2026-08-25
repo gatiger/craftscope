@@ -17,15 +17,26 @@ public abstract class MixinInventoryScreen {
     private void craftscope$addButton(CallbackInfo ci) {
         InventoryScreen screen = (InventoryScreen) (Object) this;
 
-        int buttonWidth = 20;
-        int buttonHeight = 20;
+        AbstractContainerScreenAccessor container =
+                (AbstractContainerScreenAccessor) screen;
 
-        int x = screen.width - buttonWidth - 5;
-        int y = 5;
+        int left = container.craftscope$getLeftPos();
+        int top = container.craftscope$getTopPos();
+
+        int buttonWidth = 16;
+        int buttonHeight = 22;
+
+        /*
+        * Attach CraftScope like a tab to the right edge of the inventory panel.
+        * A few pixels remain over the panel so it looks integrated.
+        */
+        int x = left + container.craftscope$getImageWidth() - 4;
+        int y = top + 62;
 
         Button button = Button.builder(
                 Component.literal("C"),
-                pressed -> Minecraft.getInstance().setScreen(new CraftScopeScreen(screen))
+                pressed -> Minecraft.getInstance()
+                        .setScreen(new CraftScopeScreen(screen))
         ).bounds(
                 x,
                 y,

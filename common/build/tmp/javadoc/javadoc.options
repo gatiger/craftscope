@@ -7,6 +7,7 @@
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\CommonClass.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\Constants.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\CraftScopeScreen.java'
+'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\AbstractContainerScreenAccessor.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\MixinInventoryScreen.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\MixinMinecraft.java'
 'D:\\Projects\\craftscope\\common\\src\\main\\java\\io\\github\\gatiger\\craftscope\\mixin\\ScreenAccessor.java'
