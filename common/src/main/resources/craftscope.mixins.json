@@ -6,7 +6,9 @@
   "compatibilityLevel": "JAVA_21",
   "mixins": [],
   "client": [
-    "MixinMinecraft"
+    "MixinMinecraft",
+    "MixinInventoryScreen",
+    "ScreenAccessor"
   ],
   "server": [],
   "injectors": {
