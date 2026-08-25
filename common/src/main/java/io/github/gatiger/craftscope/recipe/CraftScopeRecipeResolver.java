@@ -246,20 +246,19 @@ public final class CraftScopeRecipeResolver {
                             registryAccess
                     );
 
-            if (output.isEmpty()) {
-                continue;
-            }
+            if (output.isEmpty()
+                    || !ItemStack.isSameItem(
+                            output,
+                            target
+                    )) {
 
-            if (!ItemStack.isSameItem(
-                    output,
-                    target
-            )) {
                 continue;
             }
 
             if (looksLikeStorageConversion(
                     target,
                     recipe,
+                    recipeManager,
                     registryAccess
             )) {
                 continue;
@@ -323,13 +322,28 @@ public final class CraftScopeRecipeResolver {
             ItemStack[] possibilities =
                     ingredient.getItems();
 
-            int breadth =
+            /*
+             * Variant breadth is useful, but it should only
+             * be a small preference.
+             *
+             * This lets:
+             *
+             * Any Planks -> Sticks
+             *
+             * beat:
+             *
+             * Bamboo -> Sticks
+             *
+             * without causing highly-variable recipes such as
+             * dyeing wool to dominate simpler normal recipes.
+             */
+            int breadthBonus =
                     Math.min(
                             possibilities.length,
-                            64
+                            3
                     );
 
-            score += breadth * 10;
+            score += breadthBonus;
 
             for (ItemStack possibility :
                     possibilities) {
@@ -351,11 +365,18 @@ public final class CraftScopeRecipeResolver {
             }
         }
 
+        /*
+         * More substantial crafting recipes generally rank
+         * above one-off transformation recipes.
+         */
         score += ingredientSlots * 5;
 
+        /*
+         * Keep this bonus deliberately small.
+         */
         score += Math.min(
                 uniqueItems.size(),
-                64
+                3
         );
 
         ItemStack output =
@@ -368,6 +389,150 @@ public final class CraftScopeRecipeResolver {
         }
 
         return score;
+    }
+
+    private static boolean looksLikeStorageConversion(
+            ItemStack target,
+            Recipe<?> recipe,
+            RecipeManager recipeManager,
+            RegistryAccess registryAccess
+    ) {
+        ItemStack output =
+                recipe.getResultItem(
+                        registryAccess
+                );
+
+        if (output.getCount() <= 1) {
+            return false;
+        }
+
+        Ingredient onlyIngredient = null;
+        int nonEmptyIngredients = 0;
+
+        for (Ingredient ingredient :
+                recipe.getIngredients()) {
+
+            if (ingredient.isEmpty()) {
+                continue;
+            }
+
+            nonEmptyIngredients++;
+            onlyIngredient = ingredient;
+
+            if (nonEmptyIngredients > 1) {
+                return false;
+            }
+        }
+
+        if (nonEmptyIngredients != 1
+                || onlyIngredient == null) {
+
+            return false;
+        }
+
+        ItemStack[] inputs =
+                onlyIngredient.getItems();
+
+        if (inputs.length == 0) {
+            return false;
+        }
+
+        /*
+         * A one-input, multi-output recipe is only considered
+         * storage/decompression if CraftScope can find the
+         * reverse conversion too.
+         *
+         * Diamond Block -> Diamonds
+         * Diamonds -> Diamond Block
+         *
+         * therefore qualifies.
+         *
+         * Log -> Planks
+         *
+         * does not, because there is no Planks -> Log recipe.
+         */
+        for (ItemStack input :
+                inputs) {
+
+            if (input.isEmpty()) {
+                continue;
+            }
+
+            if (hasReverseCraftingConversion(
+                    target,
+                    input,
+                    recipeManager,
+                    registryAccess
+            )) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean hasReverseCraftingConversion(
+            ItemStack decompressedItem,
+            ItemStack compressedItem,
+            RecipeManager recipeManager,
+            RegistryAccess registryAccess
+    ) {
+        for (RecipeHolder<?> holder :
+                recipeManager.getAllRecipesFor(
+                        RecipeType.CRAFTING
+                )) {
+
+            Recipe<?> reverseRecipe =
+                    holder.value();
+
+            ItemStack reverseOutput =
+                    reverseRecipe.getResultItem(
+                            registryAccess
+                    );
+
+            if (reverseOutput.isEmpty()
+                    || !ItemStack.isSameItem(
+                            reverseOutput,
+                            compressedItem
+                    )) {
+
+                continue;
+            }
+
+            boolean containsOriginal =
+                    false;
+
+            for (Ingredient ingredient :
+                    reverseRecipe.getIngredients()) {
+
+                if (ingredient.isEmpty()) {
+                    continue;
+                }
+
+                for (ItemStack possibility :
+                        ingredient.getItems()) {
+
+                    if (ItemStack.isSameItem(
+                            possibility,
+                            decompressedItem
+                    )) {
+
+                        containsOriginal = true;
+                        break;
+                    }
+                }
+
+                if (containsOriginal) {
+                    break;
+                }
+            }
+
+            if (containsOriginal) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static List<ItemStack> normalizeVariants(
@@ -385,11 +550,8 @@ public final class CraftScopeRecipeResolver {
                 continue;
             }
 
-            String key =
-                    getItemKey(stack);
-
             unique.putIfAbsent(
-                    key,
+                    getItemKey(stack),
                     stack.copy()
             );
         }
@@ -439,40 +601,6 @@ public final class CraftScopeRecipeResolver {
         }
 
         return builder.toString();
-    }
-
-    private static boolean looksLikeStorageConversion(
-            ItemStack target,
-            Recipe<?> recipe,
-            RegistryAccess registryAccess
-    ) {
-        ItemStack output =
-                recipe.getResultItem(
-                        registryAccess
-                );
-
-        int nonEmptyIngredients = 0;
-
-        for (Ingredient ingredient :
-                recipe.getIngredients()) {
-
-            if (ingredient.isEmpty()) {
-                continue;
-            }
-
-            nonEmptyIngredients++;
-
-            if (nonEmptyIngredients > 1) {
-                return false;
-            }
-        }
-
-        return nonEmptyIngredients == 1
-                && output.getCount() > 1
-                && ItemStack.isSameItem(
-                        output,
-                        target
-                );
     }
 
     private static CraftScopeRecipeNode createLeaf(
