@@ -16,6 +16,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
+import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -83,17 +85,22 @@ public class CraftScopeProjectScreen extends Screen
 
     private CraftScopeRecipeTree currentTree;
 
-    public CraftScopeProjectScreen(
-            Screen parent,
-            CraftScopeProject project
-    ) {
+        private CraftScopeMaterialSummary currentMaterialSummary =
+                new CraftScopeMaterialSummary(
+                        List.of()
+                );
+
+        public CraftScopeProjectScreen(
+                Screen parent,
+                CraftScopeProject project
+        ) {
         super(Component.literal(project.getName()));
 
         this.parent = parent;
         this.project = project;
 
         loadRecipeOverrides();
-    }
+        }
 
     private void loadRecipeOverrides() {
         recipeOverrides.clear();
@@ -201,6 +208,71 @@ public class CraftScopeProjectScreen extends Screen
 
         rebuildTree();
     }
+
+    private void logMaterialSummary() {
+
+        Constants.LOG.info(
+                "CraftScope Total Materials for project '{}':",
+                project.getName()
+        );
+
+        if (currentMaterialSummary == null
+                || currentMaterialSummary.isEmpty()) {
+
+                Constants.LOG.info(
+                        "  No materials found."
+                );
+
+                return;
+        }
+
+        for (CraftScopeMaterialSummary.Entry entry :
+                currentMaterialSummary.getEntries()) {
+
+                ItemStack stack =
+                        entry.getStack();
+
+                String itemName =
+                        stack.getHoverName()
+                                .getString();
+
+                List<ItemStack> variants =
+                        entry.getAcceptedVariants();
+
+                if (variants.size() <= 1) {
+
+                Constants.LOG.info(
+                        "  {} x{} ({})",
+                        itemName,
+                        entry.getRequiredCount(),
+                        getItemId(stack)
+                );
+
+                continue;
+                }
+
+                StringBuilder variantIds =
+                        new StringBuilder();
+
+                for (ItemStack variant : variants) {
+
+                if (!variantIds.isEmpty()) {
+                        variantIds.append(", ");
+                }
+
+                variantIds.append(
+                        getItemId(variant)
+                );
+                }
+
+                Constants.LOG.info(
+                        "  {} x{} [variants: {}]",
+                        itemName,
+                        entry.getRequiredCount(),
+                        variantIds
+                );
+        }
+        }
 
     private void rebuildTree() {
         ItemStack target =
