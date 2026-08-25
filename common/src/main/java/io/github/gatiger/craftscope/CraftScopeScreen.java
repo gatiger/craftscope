@@ -1,7 +1,5 @@
 package io.github.gatiger.craftscope;
 
-import io.github.gatiger.craftscope.client.CraftScopeClientConfig;
-import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
@@ -20,19 +18,18 @@ public class CraftScopeScreen extends Screen {
     protected void init() {
         super.init();
 
-        int buttonWidth = 150;
+        int buttonWidth = 140;
         int buttonHeight = 20;
-
         int centerX = width / 2;
-        int startY = 80;
+        int startY = 85;
 
+        // Projects
         addRenderableWidget(
                 Button.builder(
-                                Component.literal("Move Inventory Tab"),
-                                button -> {
-                                    CraftScopeClientConfig.setMoveTabMode(true);
-                                    minecraft.setScreen(parent);
-                                }
+                                Component.literal("Projects"),
+                                button -> minecraft.setScreen(
+                                        new CraftScopeProjectsScreen(this)
+                                )
                         )
                         .bounds(
                                 centerX - buttonWidth / 2,
@@ -43,19 +40,13 @@ public class CraftScopeScreen extends Screen {
                         .build()
         );
 
+        // Guide
         addRenderableWidget(
                 Button.builder(
-                                Component.literal("Reset to Automatic"),
-                                button -> {
-                                    CraftScopeClientConfig.setPlacementMode(
-                                            CraftScopeClientConfig.PlacementMode.AUTO
-                                    );
-
-                                    CraftScopeClientConfig.setMoveTabMode(false);
-                                    CraftScopeClientConfigManager.save();
-
-                                    minecraft.setScreen(parent);
-                                }
+                                Component.literal("Guide"),
+                                button -> minecraft.setScreen(
+                                        new CraftScopeGuideScreen(this)
+                                )
                         )
                         .bounds(
                                 centerX - buttonWidth / 2,
@@ -66,6 +57,27 @@ public class CraftScopeScreen extends Screen {
                         .build()
         );
 
+        // Settings
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("Settings"),
+                                button -> minecraft.setScreen(
+                                        new CraftScopeSettingsScreen(
+                                                this,
+                                                parent
+                                        )
+                                )
+                        )
+                        .bounds(
+                                centerX - buttonWidth / 2,
+                                startY + 56,
+                                buttonWidth,
+                                buttonHeight
+                        )
+                        .build()
+        );
+
+        // Return to the inventory/container that opened CraftScope.
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Back"),
@@ -109,20 +121,6 @@ public class CraftScopeScreen extends Screen {
                 width / 2,
                 48,
                 0xAAAAAA
-        );
-
-        String placementText =
-                CraftScopeClientConfig.getPlacementMode()
-                        == CraftScopeClientConfig.PlacementMode.AUTO
-                                ? "Tab Placement: Automatic"
-                                : "Tab Placement: Custom";
-
-        graphics.drawCenteredString(
-                font,
-                placementText,
-                width / 2,
-                64,
-                0xCCCCCC
         );
 
         super.render(
