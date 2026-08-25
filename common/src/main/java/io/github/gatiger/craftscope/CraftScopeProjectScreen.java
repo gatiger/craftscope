@@ -3,6 +3,8 @@ package io.github.gatiger.craftscope;
 import io.github.gatiger.craftscope.client.CraftScopeTargetItemReceiver;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.recipe.CraftScopeRecipeResolver;
+import io.github.gatiger.craftscope.recipe.CraftScopeResolvedIngredient;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
@@ -12,6 +14,10 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 public class CraftScopeProjectScreen extends Screen
         implements CraftScopeTargetItemReceiver {
@@ -215,6 +221,10 @@ public class CraftScopeProjectScreen extends Screen
                 105,
                 0xCCCCCC
         );
+
+        renderImmediateIngredients(
+                graphics
+        );
     }
 
     private void renderTargetSlot(
@@ -302,6 +312,114 @@ public class CraftScopeProjectScreen extends Screen
                     145,
                     0xFFFFFF
             );
+        }
+    }
+
+    private void renderImmediateIngredients(
+            GuiGraphics graphics
+    ) {
+        ItemStack targetStack =
+                getTargetStack();
+
+        if (targetStack.isEmpty()) {
+            return;
+        }
+
+        List<CraftScopeResolvedIngredient> ingredients =
+                CraftScopeRecipeResolver
+                        .resolveImmediateIngredients(
+                                targetStack,
+                                project.getTargetCount()
+                        );
+
+        int startY = 175;
+
+        if (ingredients.isEmpty()) {
+            graphics.drawCenteredString(
+                    font,
+                    "No supported crafting recipe found.",
+                    width / 2,
+                    startY,
+                    0x888888
+            );
+
+            return;
+        }
+
+        Map<String, CraftScopeResolvedIngredient> combined =
+                new LinkedHashMap<>();
+
+        for (CraftScopeResolvedIngredient ingredient :
+                ingredients) {
+
+            ResourceLocation id =
+                    BuiltInRegistries.ITEM.getKey(
+                            ingredient.stack().getItem()
+                    );
+
+            String key =
+                    id.toString();
+
+            CraftScopeResolvedIngredient existing =
+                    combined.get(key);
+
+            if (existing == null) {
+
+                combined.put(
+                        key,
+                        ingredient
+                );
+
+            } else {
+
+                combined.put(
+                        key,
+                        new CraftScopeResolvedIngredient(
+                                existing.stack(),
+                                existing.requiredCount()
+                                        + ingredient.requiredCount()
+                        )
+                );
+            }
+        }
+
+        graphics.drawCenteredString(
+                font,
+                "Immediate Materials",
+                width / 2,
+                startY,
+                0xFFFFFF
+        );
+
+        int rowY =
+                startY + 18;
+
+        for (CraftScopeResolvedIngredient ingredient :
+                combined.values()) {
+
+            ItemStack stack =
+                    ingredient.stack();
+
+            graphics.renderItem(
+                    stack,
+                    width / 2 - 70,
+                    rowY - 4
+            );
+
+            String text =
+                    stack.getHoverName().getString()
+                            + " x"
+                            + ingredient.requiredCount();
+
+            graphics.drawString(
+                    font,
+                    text,
+                    width / 2 - 48,
+                    rowY,
+                    0xCCCCCC
+            );
+
+            rowY += 20;
         }
     }
 
