@@ -3,6 +3,7 @@ package io.github.gatiger.craftscope;
 import net.fabricmc.api.ModInitializer;
 import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
 import net.fabricmc.loader.api.FabricLoader;
+import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 
 public class CraftScope implements ModInitializer {
 
@@ -14,6 +15,10 @@ public class CraftScope implements ModInitializer {
         // project.
 
         CraftScopeClientConfigManager.load(
+                FabricLoader.getInstance().getConfigDir()
+        );
+
+        CraftScopeProjectManager.initialize(
                 FabricLoader.getInstance().getConfigDir()
         );
 

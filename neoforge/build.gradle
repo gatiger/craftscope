@@ -4,7 +4,9 @@ plugins {
 }
 
 dependencies {
-    //implementation("curse.maven:jei-238222:7420587")
+    compileOnly(
+        "mezz.jei:jei-${minecraft_version}-neoforge-api:${jei_neoforge_version}"
+    )
 }
 
 neoForge {

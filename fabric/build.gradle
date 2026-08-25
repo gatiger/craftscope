@@ -13,6 +13,10 @@ dependencies {
     modImplementation("net.fabricmc.fabric-api:fabric-api:${fabric_version}")
     modImplementation("maven.modrinth:modmenu:11.0.4")
     //modImplementation("curse.maven:jei-238222:7420583")
+
+    modCompileOnly(
+        "mezz.jei:jei-${minecraft_version}-fabric-api:${jei_fabric_version}"
+    )
 }
 
 loom {

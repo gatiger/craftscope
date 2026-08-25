@@ -17,6 +17,10 @@
     "entrypoints": {
         "main": [
             "io.github.gatiger.craftscope.CraftScope"
+        ],
+
+        "jei_mod_plugin": [
+            "io.github.gatiger.craftscope.integration.jei.CraftScopeJeiPlugin"
         ]
     },
     "mixins": [

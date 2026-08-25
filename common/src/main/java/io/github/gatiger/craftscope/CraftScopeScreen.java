@@ -23,7 +23,6 @@ public class CraftScopeScreen extends Screen {
         int centerX = width / 2;
         int startY = 85;
 
-        // Projects
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Projects"),
@@ -40,7 +39,6 @@ public class CraftScopeScreen extends Screen {
                         .build()
         );
 
-        // Guide
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Guide"),
@@ -57,7 +55,6 @@ public class CraftScopeScreen extends Screen {
                         .build()
         );
 
-        // Settings
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Settings"),
@@ -77,7 +74,6 @@ public class CraftScopeScreen extends Screen {
                         .build()
         );
 
-        // Return to the inventory/container that opened CraftScope.
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Back"),
@@ -100,7 +96,7 @@ public class CraftScopeScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
-        renderBackground(
+        super.render(
                 graphics,
                 mouseX,
                 mouseY,
@@ -121,13 +117,6 @@ public class CraftScopeScreen extends Screen {
                 width / 2,
                 48,
                 0xAAAAAA
-        );
-
-        super.render(
-                graphics,
-                mouseX,
-                mouseY,
-                partialTick
         );
     }
 

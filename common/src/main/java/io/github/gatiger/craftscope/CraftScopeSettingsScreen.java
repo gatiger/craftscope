@@ -51,7 +51,8 @@ public class CraftScopeSettingsScreen extends Screen {
                                 Component.literal("Reset to Automatic"),
                                 button -> {
                                     CraftScopeClientConfig.setPlacementMode(
-                                            CraftScopeClientConfig.PlacementMode.AUTO
+                                            CraftScopeClientConfig
+                                                    .PlacementMode.AUTO
                                     );
 
                                     CraftScopeClientConfig.setMoveTabMode(false);
@@ -91,7 +92,12 @@ public class CraftScopeSettingsScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        super.render(
+                graphics,
+                mouseX,
+                mouseY,
+                partialTick
+        );
 
         graphics.drawCenteredString(
                 font,
@@ -114,8 +120,6 @@ public class CraftScopeSettingsScreen extends Screen {
                 58,
                 0xCCCCCC
         );
-
-        super.render(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override

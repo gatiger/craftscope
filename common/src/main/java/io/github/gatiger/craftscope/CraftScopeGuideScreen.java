@@ -40,7 +40,12 @@ public class CraftScopeGuideScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
-        renderBackground(graphics, mouseX, mouseY, partialTick);
+        super.render(
+                graphics,
+                mouseX,
+                mouseY,
+                partialTick
+        );
 
         graphics.drawCenteredString(
                 font,
@@ -57,8 +62,6 @@ public class CraftScopeGuideScreen extends Screen {
                 55,
                 0xAAAAAA
         );
-
-        super.render(graphics, mouseX, mouseY, partialTick);
     }
 
     @Override
