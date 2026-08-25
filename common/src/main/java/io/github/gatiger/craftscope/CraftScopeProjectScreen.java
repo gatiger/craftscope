@@ -5,6 +5,7 @@ import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.Button;
+import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
@@ -22,6 +23,8 @@ public class CraftScopeProjectScreen extends Screen
 
     private int targetSlotX;
     private int targetSlotY;
+
+    private EditBox quantityField;
 
     public CraftScopeProjectScreen(
             Screen parent,
@@ -42,19 +45,121 @@ public class CraftScopeProjectScreen extends Screen
 
         targetSlotY = 75;
 
+        int centerX = width / 2;
+
+        quantityField = new EditBox(
+                font,
+                centerX - 25,
+                118,
+                50,
+                20,
+                Component.literal("Quantity")
+        );
+
+        quantityField.setValue(
+                Integer.toString(project.getTargetCount())
+        );
+
+        quantityField.setFilter(
+                value -> value.isEmpty()
+                        || value.matches("\\d+")
+        );
+
+        quantityField.setResponder(
+                this::craftscope$quantityChanged
+        );
+
+        addRenderableWidget(quantityField);
+
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("-"),
+                                button -> craftscope$changeQuantity(-1)
+                        )
+                        .bounds(
+                                centerX - 50,
+                                118,
+                                20,
+                                20
+                        )
+                        .build()
+        );
+
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal("+"),
+                                button -> craftscope$changeQuantity(1)
+                        )
+                        .bounds(
+                                centerX + 30,
+                                118,
+                                20,
+                                20
+                        )
+                        .build()
+        );
+
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Back"),
                                 button -> minecraft.setScreen(parent)
                         )
                         .bounds(
-                                width / 2 - 50,
+                                centerX - 50,
                                 height - 40,
                                 100,
                                 20
                         )
                         .build()
         );
+    }
+
+    private void craftscope$changeQuantity(int amount) {
+        int current =
+                craftscope$getQuantityFromField();
+
+        int updated =
+                Math.max(1, current + amount);
+
+        quantityField.setValue(
+                Integer.toString(updated)
+        );
+    }
+
+    private int craftscope$getQuantityFromField() {
+        try {
+            int value =
+                    Integer.parseInt(
+                            quantityField.getValue()
+                    );
+
+            return Math.max(1, value);
+
+        } catch (NumberFormatException e) {
+            return 1;
+        }
+    }
+
+    private void craftscope$quantityChanged(
+            String value
+    ) {
+        if (value == null || value.isEmpty()) {
+            return;
+        }
+
+        try {
+            int quantity =
+                    Integer.parseInt(value);
+
+            if (quantity < 1) {
+                return;
+            }
+
+            project.setTargetCount(quantity);
+            CraftScopeProjectManager.save();
+
+        } catch (NumberFormatException ignored) {
+        }
     }
 
     @Override
@@ -105,9 +210,9 @@ public class CraftScopeProjectScreen extends Screen
 
         graphics.drawCenteredString(
                 font,
-                "Quantity: " + project.getTargetCount(),
+                "Quantity",
                 width / 2,
-                120,
+                105,
                 0xCCCCCC
         );
     }
@@ -194,7 +299,7 @@ public class CraftScopeProjectScreen extends Screen
                     font,
                     targetStack.getHoverName(),
                     width / 2,
-                    105,
+                    145,
                     0xFFFFFF
             );
         }
