@@ -8,6 +8,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.Recipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
+import net.minecraft.world.item.crafting.RecipeInput;
 import net.minecraft.world.item.crafting.RecipeManager;
 import net.minecraft.world.item.crafting.RecipeType;
 
@@ -75,7 +76,9 @@ public final class CraftScopeRecipeResolver {
                         recipeOverrides
                 );
 
-        return new CraftScopeRecipeTree(root);
+        return new CraftScopeRecipeTree(
+                root
+        );
     }
 
     private static CraftScopeRecipeNode resolveNode(
@@ -106,11 +109,31 @@ public final class CraftScopeRecipeResolver {
         }
 
         List<RecipeCandidate> candidates =
-                findRankedCraftingRecipes(
+                findRankedProductionRecipes(
                         stack,
                         recipeManager,
                         registryAccess
                 );
+
+        /*
+         * Prevent indirect reverse loops.
+         *
+         * Example:
+         *
+         * Iron Ingot
+         *   -> Iron Nuggets
+         *      -> Iron Ingot
+         *
+         * If a candidate requires something that is already
+         * higher in the active branch, do not follow it.
+         */
+        candidates.removeIf(
+                candidate ->
+                        candidateUsesActivePathItem(
+                                candidate,
+                                activePath
+                        )
+        );
 
         if (candidates.isEmpty()) {
 
@@ -157,13 +180,15 @@ public final class CraftScopeRecipeResolver {
                 candidates) {
 
             ResourceLocation id =
-                    candidate.holder().id();
+                    candidate.primaryRecipeId();
 
             if (!id.equals(
-                    selectedHolder.id()
+                    selectedCandidate.primaryRecipeId()
             )) {
 
-                alternativeRecipeIds.add(id);
+                alternativeRecipeIds.add(
+                        id
+                );
             }
         }
 
@@ -174,15 +199,262 @@ public final class CraftScopeRecipeResolver {
                         craftsNeeded,
                         true,
                         acceptedVariants,
-                        selectedHolder.id(),
+                        selectedCandidate.primaryRecipeId(),
                         alternativeRecipeIds
                 );
 
-        activePath.add(key);
+        activePath.add(
+                key
+        );
 
+        /*
+         * Use the selected route's normalized ingredient groups.
+         *
+         * This lets equivalent inputs such as:
+         *
+         * Iron Ore
+         * Deepslate Iron Ore
+         *
+         * become one accepted-variant group.
+         */
+        for (IngredientGroup group :
+                selectedCandidate.ingredientGroups()) {
+
+            int requiredIngredientCount =
+                    group.countPerCraft()
+                            * craftsNeeded;
+
+            int childIndex =
+                    node.getChildren().size();
+
+            String childPath =
+                    nodePath
+                            + "/"
+                            + childIndex
+                            + ":"
+                            + getItemKey(
+                                    group.stack()
+                            );
+
+            CraftScopeRecipeNode child =
+                    resolveNode(
+                            group.stack(),
+                            requiredIngredientCount,
+                            recipeManager,
+                            registryAccess,
+                            activePath,
+                            depth + 1,
+                            group.variants(),
+                            childPath,
+                            recipeOverrides
+                    );
+
+            node.addChild(
+                    child
+            );
+        }
+
+        activePath.remove(
+                key
+        );
+
+        return node;
+    }
+
+    private static boolean candidateUsesActivePathItem(
+            RecipeCandidate candidate,
+            Set<String> activePath
+    ) {
+        if (activePath.isEmpty()) {
+            return false;
+        }
+
+        for (IngredientGroup group :
+                candidate.ingredientGroups()) {
+
+            for (ItemStack variant :
+                    group.variants()) {
+
+                if (activePath.contains(
+                        getItemKey(variant)
+                )) {
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static RecipeCandidate chooseCandidate(
+            List<RecipeCandidate> candidates,
+            ResourceLocation overrideId
+    ) {
+        if (overrideId != null) {
+
+            for (RecipeCandidate candidate :
+                    candidates) {
+
+                if (candidate.matchesRecipeId(
+                        overrideId
+                )) {
+
+                    return candidate;
+                }
+            }
+        }
+
+        return candidates.getFirst();
+    }
+
+    private static List<RecipeCandidate> findRankedProductionRecipes(
+            ItemStack target,
+            RecipeManager recipeManager,
+            RegistryAccess registryAccess
+    ) {
+        List<RecipeCandidate> rawCandidates =
+                new ArrayList<>();
+
+        collectCandidates(
+                target,
+                recipeManager,
+                registryAccess,
+                RecipeType.CRAFTING,
+                ProductionType.CRAFTING,
+                rawCandidates
+        );
+
+        collectCandidates(
+                target,
+                recipeManager,
+                registryAccess,
+                RecipeType.SMELTING,
+                ProductionType.SMELTING,
+                rawCandidates
+        );
+
+        collectCandidates(
+                target,
+                recipeManager,
+                registryAccess,
+                RecipeType.BLASTING,
+                ProductionType.BLASTING,
+                rawCandidates
+        );
+
+        List<RecipeCandidate> candidates =
+                mergeEquivalentCookingRoutes(
+                        rawCandidates
+                );
+
+        candidates.sort(
+                Comparator
+                        .comparingInt(
+                                RecipeCandidate::score
+                        )
+                        .reversed()
+                        .thenComparing(
+                                candidate ->
+                                        candidate
+                                                .primaryRecipeId()
+                                                .toString()
+                        )
+        );
+
+        return candidates;
+    }
+
+    private static <I extends RecipeInput, T extends Recipe<I>>
+    void collectCandidates(
+            ItemStack target,
+            RecipeManager recipeManager,
+            RegistryAccess registryAccess,
+            RecipeType<T> recipeType,
+            ProductionType productionType,
+            List<RecipeCandidate> candidates
+    ) {
+        for (RecipeHolder<T> holder :
+                recipeManager.getAllRecipesFor(
+                        recipeType
+                )) {
+
+            T recipe =
+                    holder.value();
+
+            ItemStack output =
+                    recipe.getResultItem(
+                            registryAccess
+                    );
+
+            if (output.isEmpty()
+                    || !ItemStack.isSameItem(
+                            output,
+                            target
+                    )) {
+
+                continue;
+            }
+
+            /*
+             * Storage-conversion filtering applies to
+             * crafting-table recipes.
+             *
+             * Furnace and blast-furnace recipes are forward
+             * processing routes and should not be filtered here.
+             */
+            if (productionType
+                    == ProductionType.CRAFTING
+                    && looksLikeStorageConversion(
+                            target,
+                            recipe,
+                            recipeManager,
+                            registryAccess
+                    )) {
+
+                continue;
+            }
+
+            List<IngredientGroup> ingredientGroups =
+                    buildIngredientGroups(
+                            recipe
+                    );
+
+            int score =
+                    scoreRecipe(
+                            target,
+                            recipe,
+                            registryAccess,
+                            productionType
+                    );
+
+            candidates.add(
+                    new RecipeCandidate(
+                            holder,
+                            productionType,
+                            score,
+                            ingredientGroups,
+                            List.of(
+                                    holder.id()
+                            )
+                    )
+            );
+        }
+    }
+
+    private static List<IngredientGroup> buildIngredientGroups(
+            Recipe<?> recipe
+    ) {
         Map<String, IngredientGroup> grouped =
                 new LinkedHashMap<>();
 
+        /*
+         * Only explicit recipe ingredients are included.
+         *
+         * Furnace/blast-furnace fuel is NOT part of the recipe
+         * ingredient list, so CraftScope will not invent a coal,
+         * charcoal, lava, etc. requirement.
+         */
         for (Ingredient ingredient :
                 recipe.getIngredients()) {
 
@@ -217,7 +489,9 @@ public final class CraftScopeRecipeResolver {
                     );
 
             IngredientGroup existing =
-                    grouped.get(ingredientKey);
+                    grouped.get(
+                            ingredientKey
+                    );
 
             if (existing == null) {
 
@@ -243,143 +517,316 @@ public final class CraftScopeRecipeResolver {
             }
         }
 
-        int childIndex = 0;
-
-        for (IngredientGroup group :
-                grouped.values()) {
-
-            int requiredIngredientCount =
-                    group.countPerCraft()
-                            * craftsNeeded;
-
-            String childPath =
-                    nodePath
-                            + "/"
-                            + childIndex
-                            + ":"
-                            + getItemKey(
-                                    group.stack()
-                            );
-
-            CraftScopeRecipeNode child =
-                    resolveNode(
-                            group.stack(),
-                            requiredIngredientCount,
-                            recipeManager,
-                            registryAccess,
-                            activePath,
-                            depth + 1,
-                            group.variants(),
-                            childPath,
-                            recipeOverrides
-                    );
-
-            node.addChild(child);
-
-            childIndex++;
-        }
-
-        activePath.remove(key);
-
-        return node;
+        return new ArrayList<>(
+                grouped.values()
+        );
     }
 
-    private static RecipeCandidate chooseCandidate(
-            List<RecipeCandidate> candidates,
-            ResourceLocation overrideId
+    /*
+     * Collapse equivalent furnace/blast-furnace material routes.
+     *
+     * Example:
+     *
+     * Iron Ore -> Iron Ingot
+     * Deepslate Iron Ore -> Iron Ingot
+     *
+     * become one:
+     *
+     * Any Iron Ore -> Iron Ingot
+     *
+     * Smelting and blasting versions are also collapsed because
+     * they require the same actual material.
+     *
+     * Raw Iron remains a separate route.
+     * Iron Nuggets remain a separate crafting route.
+     */
+    private static List<RecipeCandidate> mergeEquivalentCookingRoutes(
+            List<RecipeCandidate> rawCandidates
     ) {
-        if (overrideId != null) {
-
-            for (RecipeCandidate candidate :
-                    candidates) {
-
-                if (candidate.holder()
-                        .id()
-                        .equals(overrideId)) {
-
-                    return candidate;
-                }
-            }
-        }
-
-        return candidates.getFirst();
-    }
-
-    private static List<RecipeCandidate> findRankedCraftingRecipes(
-            ItemStack target,
-            RecipeManager recipeManager,
-            RegistryAccess registryAccess
-    ) {
-        List<RecipeCandidate> candidates =
+        List<RecipeCandidate> result =
                 new ArrayList<>();
 
-        for (RecipeHolder<?> holder :
-                recipeManager.getAllRecipesFor(
-                        RecipeType.CRAFTING
-                )) {
+        Map<String, List<RecipeCandidate>> cookingGroups =
+                new LinkedHashMap<>();
 
-            Recipe<?> recipe =
-                    holder.value();
+        for (RecipeCandidate candidate :
+                rawCandidates) {
 
-            ItemStack output =
-                    recipe.getResultItem(
-                            registryAccess
+            if (candidate.productionType()
+                    == ProductionType.CRAFTING) {
+
+                result.add(
+                        candidate
+                );
+
+                continue;
+            }
+
+            String routeKey =
+                    buildCookingRouteKey(
+                            candidate
                     );
 
-            if (output.isEmpty()
-                    || !ItemStack.isSameItem(
-                            output,
-                            target
-                    )) {
+            cookingGroups
+                    .computeIfAbsent(
+                            routeKey,
+                            ignored ->
+                                    new ArrayList<>()
+                    )
+                    .add(
+                            candidate
+                    );
+        }
 
-                continue;
-            }
+        for (List<RecipeCandidate> group :
+                cookingGroups.values()) {
 
-            if (looksLikeStorageConversion(
-                    target,
-                    recipe,
-                    recipeManager,
-                    registryAccess
-            )) {
-                continue;
-            }
-
-            candidates.add(
-                    new RecipeCandidate(
-                            holder,
-                            scoreRecipe(
-                                    target,
-                                    recipe,
-                                    registryAccess
-                            )
+            result.add(
+                    mergeCookingGroup(
+                            group
                     )
             );
         }
 
-        candidates.sort(
-                Comparator
-                        .comparingInt(
-                                RecipeCandidate::score
-                        )
-                        .reversed()
-                        .thenComparing(
-                                candidate ->
-                                        candidate.holder()
-                                                .id()
-                                                .toString()
-                        )
+        return result;
+    }
+
+    private static String buildCookingRouteKey(
+            RecipeCandidate candidate
+    ) {
+        if (candidate
+                .ingredientGroups()
+                .size() != 1) {
+
+            return "recipe:"
+                    + candidate
+                    .primaryRecipeId();
+        }
+
+        IngredientGroup group =
+                candidate
+                        .ingredientGroups()
+                        .getFirst();
+
+        Set<String> familyKeys =
+                new HashSet<>();
+
+        for (ItemStack variant :
+                group.variants()) {
+
+            familyKeys.add(
+                    getCookingFamilyKey(
+                            variant
+                    )
+            );
+        }
+
+        List<String> sorted =
+                new ArrayList<>(
+                        familyKeys
+                );
+
+        sorted.sort(
+                String::compareTo
         );
 
-        return candidates;
+        return String.join(
+                "|",
+                sorted
+        );
+    }
+
+    /*
+     * Iron Ore and Deepslate Iron Ore share the same cooking
+     * family.
+     *
+     * This also works for similarly named modded ores.
+     */
+    private static String getCookingFamilyKey(
+            ItemStack stack
+    ) {
+        ResourceLocation id =
+                BuiltInRegistries.ITEM.getKey(
+                        stack.getItem()
+                );
+
+        String path =
+                id.getPath();
+
+        if (path.startsWith(
+                "deepslate_"
+        )
+                && path.endsWith(
+                "_ore"
+        )) {
+
+            path =
+                    path.substring(
+                            "deepslate_".length()
+                    );
+        }
+
+        return id.getNamespace()
+                + ":"
+                + path;
+    }
+
+    private static RecipeCandidate mergeCookingGroup(
+            List<RecipeCandidate> candidates
+    ) {
+        /*
+         * Explicit generic type is important here.
+         *
+         * Without <RecipeCandidate>, Java can infer Object for
+         * the chained comparator in this environment.
+         */
+        RecipeCandidate representative =
+                candidates.stream()
+                        .min(
+                                Comparator
+                                        .<RecipeCandidate>comparingInt(
+                                                candidate ->
+                                                        productionMethodOrder(
+                                                                candidate.productionType()
+                                                        )
+                                        )
+                                        .thenComparing(
+                                                candidate ->
+                                                        candidate
+                                                                .primaryRecipeId()
+                                                                .toString()
+                                        )
+                        )
+                        .orElseThrow();
+
+        List<ItemStack> combinedVariants =
+                new ArrayList<>();
+
+        List<ResourceLocation> equivalentRecipeIds =
+                new ArrayList<>();
+
+        int bestScore =
+                Integer.MIN_VALUE;
+
+        int countPerCraft =
+                1;
+
+        for (RecipeCandidate candidate :
+                candidates) {
+
+            bestScore =
+                    Math.max(
+                            bestScore,
+                            candidate.score()
+                    );
+
+            for (ResourceLocation id :
+                    candidate.equivalentRecipeIds()) {
+
+                if (!equivalentRecipeIds.contains(
+                        id
+                )) {
+
+                    equivalentRecipeIds.add(
+                            id
+                    );
+                }
+            }
+
+            if (!candidate
+                    .ingredientGroups()
+                    .isEmpty()) {
+
+                IngredientGroup group =
+                        candidate
+                                .ingredientGroups()
+                                .getFirst();
+
+                combinedVariants.addAll(
+                        group.variants()
+                );
+
+                countPerCraft =
+                        Math.max(
+                                countPerCraft,
+                                group.countPerCraft()
+                        );
+            }
+        }
+
+        List<ItemStack> normalizedVariants =
+                normalizeVariants(
+                        combinedVariants
+                );
+
+        ItemStack representativeStack =
+                chooseRepresentative(
+                        normalizedVariants
+                );
+
+        List<IngredientGroup> mergedIngredients =
+                List.of(
+                        new IngredientGroup(
+                                representativeStack,
+                                normalizedVariants,
+                                countPerCraft
+                        )
+                );
+
+        /*
+         * Give routes that accept several equivalent materials
+         * a tiny bonus.
+         *
+         * It is intentionally small so flexibility does not
+         * override the main production ranking.
+         */
+        int flexibilityBonus =
+                Math.min(
+                        Math.max(
+                                0,
+                                normalizedVariants.size() - 1
+                        ),
+                        3
+                );
+
+        return new RecipeCandidate(
+                representative.holder(),
+                representative.productionType(),
+                bestScore + flexibilityBonus,
+                mergedIngredients,
+                equivalentRecipeIds
+        );
+    }
+
+    private static int productionMethodOrder(
+            ProductionType type
+    ) {
+        return switch (type) {
+
+            case SMELTING ->
+                    0;
+
+            case BLASTING ->
+                    1;
+
+            case CRAFTING ->
+                    2;
+        };
     }
 
     private static int scoreRecipe(
             ItemStack target,
             Recipe<?> recipe,
-            RegistryAccess registryAccess
+            RegistryAccess registryAccess,
+            ProductionType productionType
     ) {
-        int score = 0;
-        int ingredientSlots = 0;
+        int score =
+                getProductionTypeScore(
+                        productionType
+                );
+
+        int ingredientSlots =
+                0;
 
         Set<String> uniqueItems =
                 new HashSet<>();
@@ -396,13 +843,11 @@ public final class CraftScopeRecipeResolver {
             ItemStack[] possibilities =
                     ingredient.getItems();
 
-            int breadthBonus =
+            score +=
                     Math.min(
                             possibilities.length,
                             3
                     );
-
-            score += breadthBonus;
 
             for (ItemStack possibility :
                     possibilities) {
@@ -412,24 +857,35 @@ public final class CraftScopeRecipeResolver {
                 }
 
                 uniqueItems.add(
-                        getItemKey(possibility)
+                        getItemKey(
+                                possibility
+                        )
                 );
+
+                score +=
+                        scoreInputPreference(
+                                possibility
+                        );
 
                 if (ItemStack.isSameItem(
                         possibility,
                         target
                 )) {
-                    score -= 1000;
+
+                    score -=
+                            1000;
                 }
             }
         }
 
-        score += ingredientSlots * 5;
+        score +=
+                ingredientSlots * 5;
 
-        score += Math.min(
-                uniqueItems.size(),
-                3
-        );
+        score +=
+                Math.min(
+                        uniqueItems.size(),
+                        3
+                );
 
         ItemStack output =
                 recipe.getResultItem(
@@ -437,7 +893,98 @@ public final class CraftScopeRecipeResolver {
                 );
 
         if (output.getCount() > 16) {
-            score -= output.getCount();
+
+            score -=
+                    output.getCount();
+        }
+
+        return score;
+    }
+
+    /*
+     * Normal forward processing should beat crafting together
+     * smaller pieces.
+     *
+     * Normal furnace smelting is placed slightly ahead of
+     * blasting as the baseline processing method.
+     */
+    private static int getProductionTypeScore(
+            ProductionType productionType
+    ) {
+        return switch (productionType) {
+
+            case SMELTING ->
+                    3000;
+
+            case BLASTING ->
+                    2900;
+
+            case CRAFTING ->
+                    1000;
+        };
+    }
+
+    private static int scoreInputPreference(
+            ItemStack stack
+    ) {
+        ResourceLocation id =
+                BuiltInRegistries.ITEM.getKey(
+                        stack.getItem()
+                );
+
+        String path =
+                id.getPath();
+
+        int score =
+                0;
+
+        /*
+         * Prefer ordinary ore processing when available.
+         */
+        if (path.endsWith(
+                "_ore"
+        )) {
+
+            score +=
+                    50;
+        }
+
+        /*
+         * Raw materials are also a normal processing route,
+         * but sit just behind ores for the automatic default.
+         */
+        if (path.startsWith(
+                "raw_"
+        )) {
+
+            score +=
+                    30;
+        }
+
+        /*
+         * Prefer the normal ore as the representative over its
+         * deepslate equivalent.
+         *
+         * They will still be merged into one variant group.
+         */
+        if (path.startsWith(
+                "deepslate_"
+        )) {
+
+            score -=
+                    5;
+        }
+
+        /*
+         * Recombining nuggets remains available but should not
+         * normally become the preferred production route.
+         */
+        if (path.endsWith(
+                "_nugget"
+        )) {
+
+            score -=
+                    75;
         }
 
         return score;
@@ -455,11 +1002,15 @@ public final class CraftScopeRecipeResolver {
                 );
 
         if (output.getCount() <= 1) {
+
             return false;
         }
 
-        Ingredient onlyIngredient = null;
-        int nonEmptyIngredients = 0;
+        Ingredient onlyIngredient =
+                null;
+
+        int nonEmptyIngredients =
+                0;
 
         for (Ingredient ingredient :
                 recipe.getIngredients()) {
@@ -469,9 +1020,12 @@ public final class CraftScopeRecipeResolver {
             }
 
             nonEmptyIngredients++;
-            onlyIngredient = ingredient;
+
+            onlyIngredient =
+                    ingredient;
 
             if (nonEmptyIngredients > 1) {
+
                 return false;
             }
         }
@@ -486,6 +1040,7 @@ public final class CraftScopeRecipeResolver {
                 onlyIngredient.getItems();
 
         if (inputs.length == 0) {
+
             return false;
         }
 
@@ -502,6 +1057,7 @@ public final class CraftScopeRecipeResolver {
                     recipeManager,
                     registryAccess
             )) {
+
                 return true;
             }
         }
@@ -555,7 +1111,9 @@ public final class CraftScopeRecipeResolver {
                             decompressedItem
                     )) {
 
-                        containsOriginal = true;
+                        containsOriginal =
+                                true;
+
                         break;
                     }
                 }
@@ -566,6 +1124,7 @@ public final class CraftScopeRecipeResolver {
             }
 
             if (containsOriginal) {
+
                 return true;
             }
         }
@@ -575,6 +1134,25 @@ public final class CraftScopeRecipeResolver {
 
     private static List<ItemStack> normalizeVariants(
             ItemStack[] possibilities
+    ) {
+        List<ItemStack> list =
+                new ArrayList<>();
+
+        for (ItemStack stack :
+                possibilities) {
+
+            list.add(
+                    stack
+            );
+        }
+
+        return normalizeVariants(
+                list
+        );
+    }
+
+    private static List<ItemStack> normalizeVariants(
+            List<ItemStack> possibilities
     ) {
         Map<String, ItemStack> unique =
                 new LinkedHashMap<>();
@@ -589,7 +1167,9 @@ public final class CraftScopeRecipeResolver {
             }
 
             unique.putIfAbsent(
-                    getItemKey(stack),
+                    getItemKey(
+                            stack
+                    ),
                     stack.copy()
             );
         }
@@ -601,7 +1181,8 @@ public final class CraftScopeRecipeResolver {
 
         result.sort(
                 Comparator.comparing(
-                        CraftScopeRecipeResolver::getItemKey
+                        CraftScopeRecipeResolver
+                                ::getItemKey
                 )
         );
 
@@ -612,6 +1193,7 @@ public final class CraftScopeRecipeResolver {
             List<ItemStack> variants
     ) {
         if (variants.isEmpty()) {
+
             return ItemStack.EMPTY;
         }
 
@@ -630,11 +1212,16 @@ public final class CraftScopeRecipeResolver {
                 variants) {
 
             if (!builder.isEmpty()) {
-                builder.append("|");
+
+                builder.append(
+                        "|"
+                );
             }
 
             builder.append(
-                    getItemKey(variant)
+                    getItemKey(
+                            variant
+                    )
             );
         }
 
@@ -676,6 +1263,13 @@ public final class CraftScopeRecipeResolver {
         return id.toString();
     }
 
+    private enum ProductionType {
+
+        CRAFTING,
+        SMELTING,
+        BLASTING
+    }
+
     private record IngredientGroup(
             ItemStack stack,
             List<ItemStack> variants,
@@ -685,7 +1279,30 @@ public final class CraftScopeRecipeResolver {
 
     private record RecipeCandidate(
             RecipeHolder<?> holder,
-            int score
+            ProductionType productionType,
+            int score,
+            List<IngredientGroup> ingredientGroups,
+            List<ResourceLocation> equivalentRecipeIds
     ) {
+
+        private ResourceLocation primaryRecipeId() {
+
+            return holder.id();
+        }
+
+        private boolean matchesRecipeId(
+                ResourceLocation id
+        ) {
+            if (primaryRecipeId().equals(
+                    id
+            )) {
+
+                return true;
+            }
+
+            return equivalentRecipeIds.contains(
+                    id
+            );
+        }
     }
 }

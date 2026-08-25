@@ -1,6 +1,8 @@
 package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.client.CraftScopeTargetItemReceiver;
+import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
+import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
@@ -16,8 +18,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
-import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -31,12 +31,18 @@ public class CraftScopeProjectScreen extends Screen
 
     private static final int TARGET_SLOT_SIZE = 24;
 
-    private static final int TREE_ROW_HEIGHT = 20;
+    private static final int CONTENT_ROW_HEIGHT = 20;
     private static final int TREE_INDENT = 18;
 
-    private static final int TREE_SIDE_MARGIN = 20;
-    private static final int TREE_TOP = 175;
-    private static final int TREE_BOTTOM_MARGIN = 65;
+    private static final int CONTENT_SIDE_MARGIN = 20;
+    private static final int VIEW_BUTTON_Y = 165;
+    private static final int CONTENT_TITLE_Y = 192;
+    private static final int CONTENT_VIEWPORT_TOP = 210;
+    private static final int CONTENT_BOTTOM_MARGIN = 65;
+
+    private static final int VIEW_BUTTON_WIDTH = 100;
+    private static final int VIEW_BUTTON_HEIGHT = 20;
+    private static final int VIEW_BUTTON_GAP = 6;
 
     private static final int SCROLL_AMOUNT = 20;
 
@@ -48,30 +54,20 @@ public class CraftScopeProjectScreen extends Screen
     /*
      * Nodes start collapsed.
      *
-     * Expanded state currently lasts only while this project
-     * screen remains open.
+     * Expansion state lasts only while this screen instance
+     * remains open.
      */
     private final Set<String> expandedNodes =
             new HashSet<>();
 
     /*
-     * Active per-node recipe overrides.
-     *
-     * These are loaded from the CraftScopeProject when this
-     * screen is created and saved whenever the player changes
-     * a recipe.
+     * Active recipe overrides loaded from the saved project.
      */
     private final Map<String, ResourceLocation> recipeOverrides =
             new HashMap<>();
 
     /*
-     * Stable ranked recipe choices for each node.
-     *
-     * The resolver reports the currently selected recipe as
-     * the preferred recipe for the rebuilt node. This cache
-     * preserves the original order so the selector remains:
-     *
-     * [1/2] -> [2/2] -> [1/2]
+     * Stable recipe-choice ordering for the [1/2] selector.
      */
     private final Map<String, List<ResourceLocation>> recipeChoices =
             new HashMap<>();
@@ -81,26 +77,33 @@ public class CraftScopeProjectScreen extends Screen
 
     private EditBox quantityField;
 
+    private Button recipeTreeButton;
+    private Button totalMaterialsButton;
+
+    private ViewMode activeView =
+            ViewMode.RECIPE_TREE;
+
     private double treeScroll;
+    private double materialScroll;
 
     private CraftScopeRecipeTree currentTree;
 
-        private CraftScopeMaterialSummary currentMaterialSummary =
-                new CraftScopeMaterialSummary(
-                        List.of()
-                );
+    private CraftScopeMaterialSummary currentMaterialSummary =
+            new CraftScopeMaterialSummary(
+                    List.of()
+            );
 
-        public CraftScopeProjectScreen(
-                Screen parent,
-                CraftScopeProject project
-        ) {
+    public CraftScopeProjectScreen(
+            Screen parent,
+            CraftScopeProject project
+    ) {
         super(Component.literal(project.getName()));
 
         this.parent = parent;
         this.project = project;
 
         loadRecipeOverrides();
-        }
+    }
 
     private void loadRecipeOverrides() {
         recipeOverrides.clear();
@@ -114,6 +117,7 @@ public class CraftScopeProjectScreen extends Screen
                     );
 
             if (recipeId != null) {
+
                 recipeOverrides.put(
                         entry.getKey(),
                         recipeId
@@ -131,16 +135,18 @@ public class CraftScopeProjectScreen extends Screen
 
         targetSlotY = 75;
 
-        int centerX = width / 2;
+        int centerX =
+                width / 2;
 
-        quantityField = new EditBox(
-                font,
-                centerX - 25,
-                118,
-                50,
-                20,
-                Component.literal("Quantity")
-        );
+        quantityField =
+                new EditBox(
+                        font,
+                        centerX - 25,
+                        118,
+                        50,
+                        20,
+                        Component.literal("Quantity")
+                );
 
         quantityField.setValue(
                 Integer.toString(
@@ -149,15 +155,18 @@ public class CraftScopeProjectScreen extends Screen
         );
 
         quantityField.setFilter(
-                value -> value.isEmpty()
-                        || value.matches("\\d+")
+                value ->
+                        value.isEmpty()
+                                || value.matches("\\d+")
         );
 
         quantityField.setResponder(
                 this::craftscope$quantityChanged
         );
 
-        addRenderableWidget(quantityField);
+        addRenderableWidget(
+                quantityField
+        );
 
         addRenderableWidget(
                 Button.builder(
@@ -189,6 +198,57 @@ public class CraftScopeProjectScreen extends Screen
                         .build()
         );
 
+        int totalViewWidth =
+                VIEW_BUTTON_WIDTH
+                        * 2
+                        + VIEW_BUTTON_GAP;
+
+        int firstViewButtonX =
+                centerX
+                        - totalViewWidth / 2;
+
+        recipeTreeButton =
+                addRenderableWidget(
+                        Button.builder(
+                                        Component.literal(
+                                                "Recipe Tree"
+                                        ),
+                                        button ->
+                                                setActiveView(
+                                                        ViewMode.RECIPE_TREE
+                                                )
+                                )
+                                .bounds(
+                                        firstViewButtonX,
+                                        VIEW_BUTTON_Y,
+                                        VIEW_BUTTON_WIDTH,
+                                        VIEW_BUTTON_HEIGHT
+                                )
+                                .build()
+                );
+
+        totalMaterialsButton =
+                addRenderableWidget(
+                        Button.builder(
+                                        Component.literal(
+                                                "Total Materials"
+                                        ),
+                                        button ->
+                                                setActiveView(
+                                                        ViewMode.TOTAL_MATERIALS
+                                                )
+                                )
+                                .bounds(
+                                        firstViewButtonX
+                                                + VIEW_BUTTON_WIDTH
+                                                + VIEW_BUTTON_GAP,
+                                        VIEW_BUTTON_Y,
+                                        VIEW_BUTTON_WIDTH,
+                                        VIEW_BUTTON_HEIGHT
+                                )
+                                .build()
+                );
+
         addRenderableWidget(
                 Button.builder(
                                 Component.literal("Back"),
@@ -205,81 +265,62 @@ public class CraftScopeProjectScreen extends Screen
         );
 
         treeScroll = 0;
+        materialScroll = 0;
+
+        updateViewButtons();
 
         rebuildTree();
     }
 
-    private void logMaterialSummary() {
+    private void setActiveView(
+            ViewMode viewMode
+    ) {
+        activeView = viewMode;
 
-        Constants.LOG.info(
-                "CraftScope Total Materials for project '{}':",
-                project.getName()
-        );
+        if (activeView == ViewMode.RECIPE_TREE) {
 
-        if (currentMaterialSummary == null
-                || currentMaterialSummary.isEmpty()) {
+            clampTreeScroll();
 
-                Constants.LOG.info(
-                        "  No materials found."
-                );
+        } else {
 
-                return;
+            clampMaterialScroll();
         }
 
-        for (CraftScopeMaterialSummary.Entry entry :
-                currentMaterialSummary.getEntries()) {
+        updateViewButtons();
+    }
 
-                ItemStack stack =
-                        entry.getStack();
+    private void updateViewButtons() {
+        if (recipeTreeButton != null) {
 
-                String itemName =
-                        stack.getHoverName()
-                                .getString();
-
-                List<ItemStack> variants =
-                        entry.getAcceptedVariants();
-
-                if (variants.size() <= 1) {
-
-                Constants.LOG.info(
-                        "  {} x{} ({})",
-                        itemName,
-                        entry.getRequiredCount(),
-                        getItemId(stack)
-                );
-
-                continue;
-                }
-
-                StringBuilder variantIds =
-                        new StringBuilder();
-
-                for (ItemStack variant : variants) {
-
-                if (!variantIds.isEmpty()) {
-                        variantIds.append(", ");
-                }
-
-                variantIds.append(
-                        getItemId(variant)
-                );
-                }
-
-                Constants.LOG.info(
-                        "  {} x{} [variants: {}]",
-                        itemName,
-                        entry.getRequiredCount(),
-                        variantIds
-                );
+            recipeTreeButton.active =
+                    activeView
+                            != ViewMode.RECIPE_TREE;
         }
+
+        if (totalMaterialsButton != null) {
+
+            totalMaterialsButton.active =
+                    activeView
+                            != ViewMode.TOTAL_MATERIALS;
         }
+    }
 
     private void rebuildTree() {
         ItemStack target =
                 getTargetStack();
 
         if (target.isEmpty()) {
+
             currentTree = null;
+
+            currentMaterialSummary =
+                    new CraftScopeMaterialSummary(
+                            List.of()
+                    );
+
+            treeScroll = 0;
+            materialScroll = 0;
+
             return;
         }
 
@@ -290,15 +331,17 @@ public class CraftScopeProjectScreen extends Screen
                         recipeOverrides
                 );
 
+        currentMaterialSummary =
+                CraftScopeMaterialSummarizer.summarize(
+                        currentTree
+                );
+
         populateRecipeChoices();
 
         clampTreeScroll();
+        clampMaterialScroll();
     }
 
-    /*
-     * Store the ranked recipe order the first time a node is
-     * encountered.
-     */
     private void populateRecipeChoices() {
         if (currentTree == null
                 || currentTree.getRoot() == null) {
@@ -323,18 +366,6 @@ public class CraftScopeProjectScreen extends Screen
             List<ResourceLocation> choices =
                     new ArrayList<>();
 
-            /*
-             * If this project already has an override, the
-             * resolver reports that selected recipe first.
-             *
-             * We want the normal automatically preferred
-             * recipe to remain position 1 in the UI.
-             *
-             * The resolver's alternatives list contains every
-             * other recipe, so reconstruct the list and, when
-             * possible, put the saved override after the first
-             * normal alternative.
-             */
             ResourceLocation selected =
                     node.getPreferredRecipeId();
 
@@ -365,36 +396,35 @@ public class CraftScopeProjectScreen extends Screen
                                 node.getAlternativeRecipeIds()
                         );
 
-                /*
-                 * The selected override is omitted from
-                 * alternativeRecipeIds, so put it back into
-                 * the complete set.
-                 */
-                allRecipes.add(savedOverride);
+                allRecipes.add(
+                        savedOverride
+                );
 
-                /*
-                 * The resolver's alternatives are ranked.
-                 * The first alternative is therefore normally
-                 * CraftScope's automatic/default choice.
-                 */
-                ResourceLocation defaultRecipe = null;
+                ResourceLocation defaultRecipe =
+                        null;
 
                 for (ResourceLocation id :
                         node.getAlternativeRecipeIds()) {
 
                     if (!id.equals(savedOverride)) {
+
                         defaultRecipe = id;
                         break;
                     }
                 }
 
                 if (defaultRecipe != null) {
-                    choices.add(defaultRecipe);
+
+                    choices.add(
+                            defaultRecipe
+                    );
                 }
 
-                for (ResourceLocation id : allRecipes) {
+                for (ResourceLocation id :
+                        allRecipes) {
 
                     if (!choices.contains(id)) {
+
                         choices.add(id);
                     }
                 }
@@ -443,20 +473,27 @@ public class CraftScopeProjectScreen extends Screen
                 );
 
         quantityField.setValue(
-                Integer.toString(updated)
+                Integer.toString(
+                        updated
+                )
         );
     }
 
     private int craftscope$getQuantityFromField() {
         try {
+
             int value =
                     Integer.parseInt(
                             quantityField.getValue()
                     );
 
-            return Math.max(1, value);
+            return Math.max(
+                    1,
+                    value
+            );
 
         } catch (NumberFormatException e) {
+
             return 1;
         }
     }
@@ -471,14 +508,19 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         try {
+
             int quantity =
-                    Integer.parseInt(value);
+                    Integer.parseInt(
+                            value
+                    );
 
             if (quantity < 1) {
                 return;
             }
 
-            project.setTargetCount(quantity);
+            project.setTargetCount(
+                    quantity
+            );
 
             CraftScopeProjectManager.save();
 
@@ -495,6 +537,11 @@ public class CraftScopeProjectScreen extends Screen
             int mouseY,
             float partialTick
     ) {
+        /*
+         * Render Minecraft's background and widgets first.
+         * CraftScope's custom content is drawn afterward so it
+         * remains sharp rather than being blurred.
+         */
         super.render(
                 graphics,
                 mouseX,
@@ -524,7 +571,11 @@ public class CraftScopeProjectScreen extends Screen
                 mouseY
         );
 
-        if (project.getTargetItemId().isEmpty()) {
+        String targetId =
+                project.getTargetItemId();
+
+        if (targetId == null
+                || targetId.isEmpty()) {
 
             graphics.drawCenteredString(
                     font,
@@ -543,11 +594,23 @@ public class CraftScopeProjectScreen extends Screen
                 0xCCCCCC
         );
 
-        renderRecipeTree(
-                graphics,
-                mouseX,
-                mouseY
-        );
+        if (activeView
+                == ViewMode.RECIPE_TREE) {
+
+            renderRecipeTree(
+                    graphics,
+                    mouseX,
+                    mouseY
+            );
+
+        } else {
+
+            renderTotalMaterials(
+                    graphics,
+                    mouseX,
+                    mouseY
+            );
+        }
     }
 
     private void renderTargetSlot(
@@ -555,8 +618,11 @@ public class CraftScopeProjectScreen extends Screen
             int mouseX,
             int mouseY
     ) {
-        int left = targetSlotX;
-        int top = targetSlotY;
+        int left =
+                targetSlotX;
+
+        int top =
+                targetSlotY;
 
         int right =
                 left + TARGET_SLOT_SIZE;
@@ -643,42 +709,48 @@ public class CraftScopeProjectScreen extends Screen
             int mouseX,
             int mouseY
     ) {
+        graphics.drawCenteredString(
+                font,
+                "Recipe Tree",
+                width / 2,
+                CONTENT_TITLE_Y,
+                0xFFFFFF
+        );
+
         if (currentTree == null
                 || currentTree.getRoot() == null) {
+
+            graphics.drawCenteredString(
+                    font,
+                    "Select a target item to build a recipe tree.",
+                    width / 2,
+                    CONTENT_VIEWPORT_TOP + 10,
+                    0x888888
+            );
 
             return;
         }
 
         int viewportTop =
-                TREE_TOP + 18;
+                CONTENT_VIEWPORT_TOP;
 
         int viewportBottom =
-                Math.max(
-                        viewportTop + TREE_ROW_HEIGHT,
-                        height - TREE_BOTTOM_MARGIN
-                );
+                getViewportBottom();
 
         int viewportHeight =
-                viewportBottom - viewportTop;
+                viewportBottom
+                        - viewportTop;
 
         int treeLeft =
                 Math.max(
-                        TREE_SIDE_MARGIN,
+                        CONTENT_SIDE_MARGIN,
                         width / 2 - 140
                 );
 
-        graphics.drawCenteredString(
-                font,
-                "Recipe Tree",
-                width / 2,
-                TREE_TOP,
-                0xFFFFFF
-        );
-
         graphics.enableScissor(
-                TREE_SIDE_MARGIN,
+                CONTENT_SIDE_MARGIN,
                 viewportTop,
-                width - TREE_SIDE_MARGIN,
+                width - CONTENT_SIDE_MARGIN,
                 viewportBottom
         );
 
@@ -701,11 +773,17 @@ public class CraftScopeProjectScreen extends Screen
 
         graphics.disableScissor();
 
+        int contentHeight =
+                getVisibleNodeCount()
+                        * CONTENT_ROW_HEIGHT;
+
         renderScrollbar(
                 graphics,
                 viewportTop,
                 viewportBottom,
-                viewportHeight
+                viewportHeight,
+                contentHeight,
+                treeScroll
         );
     }
 
@@ -725,7 +803,9 @@ public class CraftScopeProjectScreen extends Screen
                 !node.getChildren().isEmpty();
 
         boolean expanded =
-                expandedNodes.contains(nodePath);
+                expandedNodes.contains(
+                        nodePath
+                );
 
         int indent =
                 depth * TREE_INDENT;
@@ -736,14 +816,16 @@ public class CraftScopeProjectScreen extends Screen
         int iconX =
                 arrowX + 12;
 
-        if (rowY + TREE_ROW_HEIGHT >= viewportTop
+        if (rowY + CONTENT_ROW_HEIGHT >= viewportTop
                 && rowY <= viewportBottom) {
 
             if (hasChildren) {
 
                 graphics.drawString(
                         font,
-                        expanded ? "▼" : "▶",
+                        expanded
+                                ? "▼"
+                                : "▶",
                         arrowX,
                         rowY + 4,
                         0xAAAAAA
@@ -751,7 +833,9 @@ public class CraftScopeProjectScreen extends Screen
             }
 
             ItemStack displayStack =
-                    getDisplayStack(node);
+                    getDisplayStack(
+                            node
+                    );
 
             graphics.renderItem(
                     displayStack,
@@ -760,7 +844,9 @@ public class CraftScopeProjectScreen extends Screen
             );
 
             String text =
-                    getNodeDisplayName(node)
+                    getNodeDisplayName(
+                            node
+                    )
                             + " x"
                             + node.getRequiredCount();
 
@@ -800,7 +886,8 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         int nextY =
-                rowY + TREE_ROW_HEIGHT;
+                rowY
+                        + CONTENT_ROW_HEIGHT;
 
         if (expanded) {
 
@@ -849,7 +936,9 @@ public class CraftScopeProjectScreen extends Screen
             String itemText
     ) {
         List<ResourceLocation> choices =
-                recipeChoices.get(nodePath);
+                recipeChoices.get(
+                        nodePath
+                );
 
         if (choices == null
                 || choices.size() <= 1
@@ -879,7 +968,7 @@ public class CraftScopeProjectScreen extends Screen
 
         int maxX =
                 width
-                        - TREE_SIDE_MARGIN
+                        - CONTENT_SIDE_MARGIN
                         - font.width(selectorText)
                         - 8;
 
@@ -903,7 +992,9 @@ public class CraftScopeProjectScreen extends Screen
             CraftScopeRecipeNode node
     ) {
         List<ResourceLocation> choices =
-                recipeChoices.get(nodePath);
+                recipeChoices.get(
+                        nodePath
+                );
 
         if (choices == null
                 || choices.isEmpty()) {
@@ -928,18 +1019,199 @@ public class CraftScopeProjectScreen extends Screen
         return 0;
     }
 
+    private void renderTotalMaterials(
+            GuiGraphics graphics,
+            int mouseX,
+            int mouseY
+    ) {
+        graphics.drawCenteredString(
+                font,
+                "Total Materials",
+                width / 2,
+                CONTENT_TITLE_Y,
+                0xFFFFFF
+        );
+
+        if (currentMaterialSummary == null
+                || currentMaterialSummary.isEmpty()) {
+
+            graphics.drawCenteredString(
+                    font,
+                    "No materials to display.",
+                    width / 2,
+                    CONTENT_VIEWPORT_TOP + 10,
+                    0x888888
+            );
+
+            return;
+        }
+
+        int viewportTop =
+                CONTENT_VIEWPORT_TOP;
+
+        int viewportBottom =
+                getViewportBottom();
+
+        int viewportHeight =
+                viewportBottom
+                        - viewportTop;
+
+        int listLeft =
+                Math.max(
+                        CONTENT_SIDE_MARGIN,
+                        width / 2 - 120
+                );
+
+        graphics.enableScissor(
+                CONTENT_SIDE_MARGIN,
+                viewportTop,
+                width - CONTENT_SIDE_MARGIN,
+                viewportBottom
+        );
+
+        int rowY =
+                viewportTop
+                        - (int) materialScroll;
+
+        for (CraftScopeMaterialSummary.Entry entry :
+                currentMaterialSummary.getEntries()) {
+
+            if (rowY + CONTENT_ROW_HEIGHT >= viewportTop
+                    && rowY <= viewportBottom) {
+
+                renderMaterialEntry(
+                        graphics,
+                        entry,
+                        listLeft,
+                        rowY,
+                        mouseX,
+                        mouseY,
+                        viewportTop,
+                        viewportBottom
+                );
+            }
+
+            rowY +=
+                    CONTENT_ROW_HEIGHT;
+        }
+
+        graphics.disableScissor();
+
+        int contentHeight =
+                currentMaterialSummary.size()
+                        * CONTENT_ROW_HEIGHT;
+
+        renderScrollbar(
+                graphics,
+                viewportTop,
+                viewportBottom,
+                viewportHeight,
+                contentHeight,
+                materialScroll
+        );
+    }
+
+    private void renderMaterialEntry(
+            GuiGraphics graphics,
+            CraftScopeMaterialSummary.Entry entry,
+            int listLeft,
+            int rowY,
+            int mouseX,
+            int mouseY,
+            int viewportTop,
+            int viewportBottom
+    ) {
+        ItemStack displayStack =
+                getMaterialDisplayStack(
+                        entry
+                );
+
+        graphics.renderItem(
+                displayStack,
+                listLeft,
+                rowY
+        );
+
+        String materialName =
+                getMaterialDisplayName(
+                        entry
+                );
+
+        graphics.drawString(
+                font,
+                materialName,
+                listLeft + 20,
+                rowY + 4,
+                0xFFFFFF
+        );
+
+        String quantityText =
+                "x"
+                        + entry.getRequiredCount();
+
+        int quantityX =
+                Math.max(
+                        listLeft + 120,
+                        width / 2 + 75
+                );
+
+        graphics.drawString(
+                font,
+                quantityText,
+                quantityX,
+                rowY + 4,
+                0xFFFFFF
+        );
+
+        if (mouseX >= listLeft
+                && mouseX < listLeft + 16
+                && mouseY >= rowY
+                && mouseY < rowY + 16
+                && mouseY >= viewportTop
+                && mouseY < viewportBottom) {
+
+            graphics.renderTooltip(
+                    font,
+                    displayStack,
+                    mouseX,
+                    mouseY
+            );
+        }
+    }
+
     private ItemStack getDisplayStack(
             CraftScopeRecipeNode node
     ) {
-        List<ItemStack> variants =
-                node.getAcceptedVariants();
+        return getCyclingStack(
+                node.getAcceptedVariants(),
+                node.getStack()
+        );
+    }
 
-        if (variants.isEmpty()) {
-            return node.getStack();
+    private ItemStack getMaterialDisplayStack(
+            CraftScopeMaterialSummary.Entry entry
+    ) {
+        return getCyclingStack(
+                entry.getAcceptedVariants(),
+                entry.getStack()
+        );
+    }
+
+    private ItemStack getCyclingStack(
+            List<ItemStack> variants,
+            ItemStack fallback
+    ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+            return fallback.copy();
         }
 
         if (variants.size() == 1) {
-            return variants.getFirst();
+
+            return variants
+                    .getFirst()
+                    .copy();
         }
 
         long cycle =
@@ -960,12 +1232,29 @@ public class CraftScopeProjectScreen extends Screen
     private String getNodeDisplayName(
             CraftScopeRecipeNode node
     ) {
-        List<ItemStack> variants =
-                node.getAcceptedVariants();
+        return getVariantDisplayName(
+                node.getAcceptedVariants(),
+                node.getStack()
+        );
+    }
 
-        if (variants.size() <= 1) {
-            return node
-                    .getStack()
+    private String getMaterialDisplayName(
+            CraftScopeMaterialSummary.Entry entry
+    ) {
+        return getVariantDisplayName(
+                entry.getAcceptedVariants(),
+                entry.getStack()
+        );
+    }
+
+    private String getVariantDisplayName(
+            List<ItemStack> variants,
+            ItemStack fallback
+    ) {
+        if (variants == null
+                || variants.size() <= 1) {
+
+            return fallback
                     .getHoverName()
                     .getString();
         }
@@ -976,79 +1265,176 @@ public class CraftScopeProjectScreen extends Screen
                 );
 
         if (genericName != null) {
-            return "Any " + genericName;
+
+            return "Any "
+                    + genericName;
         }
 
         return "Any Valid Ingredient";
     }
 
     private String findGenericVariantName(
-            List<ItemStack> variants
-    ) {
-        if (variants.isEmpty()) {
-            return null;
+                List<ItemStack> variants
+        ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+                return null;
         }
 
-        boolean allLogs = true;
-        boolean allPlanks = true;
-        boolean allWool = true;
+        boolean allLogs =
+                true;
 
-        for (ItemStack variant : variants) {
+        boolean allPlanks =
+                true;
 
-            if (!variant.is(ItemTags.LOGS)) {
+        boolean allWool =
+                true;
+
+        for (ItemStack variant :
+                variants) {
+
+                if (!variant.is(
+                        ItemTags.LOGS
+                )) {
+
                 allLogs = false;
-            }
+                }
 
-            if (!variant.is(ItemTags.PLANKS)) {
+                if (!variant.is(
+                        ItemTags.PLANKS
+                )) {
+
                 allPlanks = false;
-            }
+                }
 
-            if (!variant.is(ItemTags.WOOL)) {
+                if (!variant.is(
+                        ItemTags.WOOL
+                )) {
+
                 allWool = false;
-            }
+                }
         }
 
         if (allLogs) {
-            return "Log";
+                return "Log";
         }
 
         if (allPlanks) {
-            return "Planks";
+                return "Planks";
         }
 
         if (allWool) {
-            return "Wool";
+                return "Wool";
         }
 
-        String commonSuffix = null;
-
-        for (ItemStack variant : variants) {
-
-            String name =
-                    variant.getHoverName()
-                            .getString();
-
-            String suffix =
-                    extractLastWord(name);
-
-            if (suffix.isEmpty()) {
-                return null;
-            }
-
-            if (commonSuffix == null) {
-
-                commonSuffix = suffix;
-
-            } else if (!commonSuffix.equalsIgnoreCase(
-                    suffix
-            )) {
-
-                return null;
-            }
+        return findCommonWordSuffix(
+                variants
+        );
         }
 
-        return commonSuffix;
-    }
+        private String findCommonWordSuffix(
+                List<ItemStack> variants
+        ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+                return null;
+        }
+
+        List<String[]> names =
+                new ArrayList<>();
+
+        for (ItemStack variant :
+                variants) {
+
+                String name =
+                        variant
+                                .getHoverName()
+                                .getString()
+                                .trim();
+
+                if (name.isEmpty()) {
+                return null;
+                }
+
+                names.add(
+                        name.split("\\s+")
+                );
+        }
+
+        String[] first =
+                names.getFirst();
+
+        int commonWords =
+                0;
+
+        for (int offset = 1;
+                offset <= first.length;
+                offset++) {
+
+                String expected =
+                        first[
+                                first.length - offset
+                        ];
+
+                boolean matchesAll =
+                        true;
+
+                for (int i = 1;
+                i < names.size();
+                i++) {
+
+                String[] words =
+                        names.get(i);
+
+                if (words.length < offset
+                        || !words[
+                                words.length - offset
+                        ].equalsIgnoreCase(
+                                expected
+                        )) {
+
+                        matchesAll =
+                                false;
+
+                        break;
+                }
+                }
+
+                if (!matchesAll) {
+                break;
+                }
+
+                commonWords++;
+        }
+
+        if (commonWords == 0) {
+                return null;
+        }
+
+        StringBuilder result =
+                new StringBuilder();
+
+        int start =
+                first.length
+                        - commonWords;
+
+        for (int i = start;
+                i < first.length;
+                i++) {
+
+                if (!result.isEmpty()) {
+                result.append(" ");
+                }
+
+                result.append(
+                        first[i]
+                );
+        }
+
+        return result.toString();
+        }
 
     private String extractLastWord(
             String value
@@ -1068,6 +1454,7 @@ public class CraftScopeProjectScreen extends Screen
                 trimmed.lastIndexOf(' ');
 
         if (space < 0) {
+
             return trimmed;
         }
 
@@ -1080,18 +1467,18 @@ public class CraftScopeProjectScreen extends Screen
             GuiGraphics graphics,
             int viewportTop,
             int viewportBottom,
-            int viewportHeight
+            int viewportHeight,
+            int contentHeight,
+            double scroll
     ) {
-        int contentHeight =
-                getVisibleNodeCount()
-                        * TREE_ROW_HEIGHT;
-
         if (contentHeight <= viewportHeight) {
             return;
         }
 
         int barX =
-                width - TREE_SIDE_MARGIN - 4;
+                width
+                        - CONTENT_SIDE_MARGIN
+                        - 4;
 
         graphics.fill(
                 barX,
@@ -1112,15 +1499,17 @@ public class CraftScopeProjectScreen extends Screen
         int maxScroll =
                 Math.max(
                         1,
-                        contentHeight - viewportHeight
+                        contentHeight
+                                - viewportHeight
                 );
 
         int travel =
-                viewportHeight - thumbHeight;
+                viewportHeight
+                        - thumbHeight;
 
         int thumbOffset =
                 (int) (
-                        (treeScroll / maxScroll)
+                        (scroll / maxScroll)
                                 * travel
                 );
 
@@ -1152,9 +1541,13 @@ public class CraftScopeProjectScreen extends Screen
             CraftScopeRecipeNode node,
             String nodePath
     ) {
-        int count = 1;
+        int count =
+                1;
 
-        if (!expandedNodes.contains(nodePath)) {
+        if (!expandedNodes.contains(
+                nodePath
+        )) {
+
             return count;
         }
 
@@ -1185,27 +1578,30 @@ public class CraftScopeProjectScreen extends Screen
         return count;
     }
 
+    private int getViewportBottom() {
+        return Math.max(
+                CONTENT_VIEWPORT_TOP
+                        + CONTENT_ROW_HEIGHT,
+                height
+                        - CONTENT_BOTTOM_MARGIN
+        );
+    }
+
+    private int getViewportHeight() {
+        return getViewportBottom()
+                - CONTENT_VIEWPORT_TOP;
+    }
+
     private void clampTreeScroll() {
-        int viewportTop =
-                TREE_TOP + 18;
-
-        int viewportBottom =
-                Math.max(
-                        viewportTop + TREE_ROW_HEIGHT,
-                        height - TREE_BOTTOM_MARGIN
-                );
-
-        int viewportHeight =
-                viewportBottom - viewportTop;
-
         int contentHeight =
                 getVisibleNodeCount()
-                        * TREE_ROW_HEIGHT;
+                        * CONTENT_ROW_HEIGHT;
 
         int maxScroll =
                 Math.max(
                         0,
-                        contentHeight - viewportHeight
+                        contentHeight
+                                - getViewportHeight()
                 );
 
         treeScroll =
@@ -1218,13 +1614,39 @@ public class CraftScopeProjectScreen extends Screen
                 );
     }
 
+    private void clampMaterialScroll() {
+        int contentHeight =
+                currentMaterialSummary == null
+                        ? 0
+                        : currentMaterialSummary.size()
+                        * CONTENT_ROW_HEIGHT;
+
+        int maxScroll =
+                Math.max(
+                        0,
+                        contentHeight
+                                - getViewportHeight()
+                );
+
+        materialScroll =
+                Math.max(
+                        0,
+                        Math.min(
+                                materialScroll,
+                                maxScroll
+                        )
+                );
+    }
+
     @Override
     public boolean mouseClicked(
             double mouseX,
             double mouseY,
             int button
     ) {
-        if (button == 0
+        if (activeView
+                == ViewMode.RECIPE_TREE
+                && button == 0
                 && handleTreeClick(
                         mouseX,
                         mouseY
@@ -1251,13 +1673,10 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         int viewportTop =
-                TREE_TOP + 18;
+                CONTENT_VIEWPORT_TOP;
 
         int viewportBottom =
-                Math.max(
-                        viewportTop + TREE_ROW_HEIGHT,
-                        height - TREE_BOTTOM_MARGIN
-                );
+                getViewportBottom();
 
         if (mouseY < viewportTop
                 || mouseY >= viewportBottom) {
@@ -1267,7 +1686,7 @@ public class CraftScopeProjectScreen extends Screen
 
         int treeLeft =
                 Math.max(
-                        TREE_SIDE_MARGIN,
+                        CONTENT_SIDE_MARGIN,
                         width / 2 - 140
                 );
 
@@ -1305,14 +1724,12 @@ public class CraftScopeProjectScreen extends Screen
                 arrowX + 12;
 
         String itemText =
-                getNodeDisplayName(node)
+                getNodeDisplayName(
+                        node
+                )
                         + " x"
                         + node.getRequiredCount();
 
-        /*
-         * Check the alternate-recipe selector before checking
-         * the tree expand/collapse arrow.
-         */
         if (isRecipeSelectorClicked(
                 node,
                 nodePath,
@@ -1330,7 +1747,8 @@ public class CraftScopeProjectScreen extends Screen
 
             return new ClickResult(
                     true,
-                    rowY + TREE_ROW_HEIGHT
+                    rowY
+                            + CONTENT_ROW_HEIGHT
             );
         }
 
@@ -1339,31 +1757,41 @@ public class CraftScopeProjectScreen extends Screen
 
         if (hasChildren
                 && mouseY >= rowY
-                && mouseY < rowY + TREE_ROW_HEIGHT
+                && mouseY < rowY + CONTENT_ROW_HEIGHT
                 && mouseX >= arrowX - 2
                 && mouseX < arrowX + 28) {
 
-            if (expandedNodes.contains(nodePath)) {
+            if (expandedNodes.contains(
+                    nodePath
+            )) {
 
-                expandedNodes.remove(nodePath);
+                expandedNodes.remove(
+                        nodePath
+                );
 
             } else {
 
-                expandedNodes.add(nodePath);
+                expandedNodes.add(
+                        nodePath
+                );
             }
 
             clampTreeScroll();
 
             return new ClickResult(
                     true,
-                    rowY + TREE_ROW_HEIGHT
+                    rowY
+                            + CONTENT_ROW_HEIGHT
             );
         }
 
         int nextY =
-                rowY + TREE_ROW_HEIGHT;
+                rowY
+                        + CONTENT_ROW_HEIGHT;
 
-        if (expandedNodes.contains(nodePath)) {
+        if (expandedNodes.contains(
+                nodePath
+        )) {
 
             List<CraftScopeRecipeNode> children =
                     node.getChildren();
@@ -1394,6 +1822,7 @@ public class CraftScopeProjectScreen extends Screen
                         );
 
                 if (result.handled()) {
+
                     return result;
                 }
 
@@ -1418,7 +1847,9 @@ public class CraftScopeProjectScreen extends Screen
             double mouseY
     ) {
         List<ResourceLocation> choices =
-                recipeChoices.get(nodePath);
+                recipeChoices.get(
+                        nodePath
+                );
 
         if (choices == null
                 || choices.size() <= 1) {
@@ -1447,7 +1878,7 @@ public class CraftScopeProjectScreen extends Screen
 
         int maxX =
                 width
-                        - TREE_SIDE_MARGIN
+                        - CONTENT_SIDE_MARGIN
                         - font.width(selectorText)
                         - 8;
 
@@ -1464,7 +1895,7 @@ public class CraftScopeProjectScreen extends Screen
                 + 2
                 && mouseY >= rowY
                 && mouseY
-                < rowY + TREE_ROW_HEIGHT;
+                < rowY + CONTENT_ROW_HEIGHT;
     }
 
     private void cycleRecipe(
@@ -1472,7 +1903,9 @@ public class CraftScopeProjectScreen extends Screen
             CraftScopeRecipeNode node
     ) {
         List<ResourceLocation> choices =
-                recipeChoices.get(nodePath);
+                recipeChoices.get(
+                        nodePath
+                );
 
         if (choices == null
                 || choices.size() <= 1) {
@@ -1491,16 +1924,15 @@ public class CraftScopeProjectScreen extends Screen
                         % choices.size();
 
         ResourceLocation nextRecipe =
-                choices.get(nextIndex);
+                choices.get(
+                        nextIndex
+                );
 
-        /*
-         * Recipe index 0 is CraftScope's preferred/default
-         * recipe. It does not need to be stored as an
-         * override.
-         */
         if (nextIndex == 0) {
 
-            recipeOverrides.remove(nodePath);
+            recipeOverrides.remove(
+                    nodePath
+            );
 
             project.removeRecipeOverride(
                     nodePath
@@ -1519,13 +1951,6 @@ public class CraftScopeProjectScreen extends Screen
             );
         }
 
-        /*
-         * Changing a recipe can completely replace this
-         * node's children.
-         *
-         * Any recipe selections below this point may therefore
-         * refer to branches that no longer exist.
-         */
         clearDescendantRecipeState(
                 nodePath
         );
@@ -1545,38 +1970,52 @@ public class CraftScopeProjectScreen extends Screen
                 .keySet()
                 .removeIf(
                         key ->
-                                key.startsWith(prefix)
+                                key.startsWith(
+                                        prefix
+                                )
                 );
 
         recipeChoices
                 .keySet()
                 .removeIf(
                         key ->
-                                key.startsWith(prefix)
+                                key.startsWith(
+                                        prefix
+                                )
                 );
 
         expandedNodes
                 .removeIf(
                         key ->
-                                key.startsWith(prefix)
+                                key.startsWith(
+                                        prefix
+                                )
                 );
 
         List<String> savedDescendants =
                 new ArrayList<>();
 
         for (String key :
-                project.getRecipeOverrides()
+                project
+                        .getRecipeOverrides()
                         .keySet()) {
 
-            if (key.startsWith(prefix)) {
-                savedDescendants.add(key);
+            if (key.startsWith(
+                    prefix
+            )) {
+
+                savedDescendants.add(
+                        key
+                );
             }
         }
 
         for (String key :
                 savedDescendants) {
 
-            project.removeRecipeOverride(key);
+            project.removeRecipeOverride(
+                    key
+            );
         }
     }
 
@@ -1588,22 +2027,31 @@ public class CraftScopeProjectScreen extends Screen
             double scrollY
     ) {
         int viewportTop =
-                TREE_TOP + 18;
+                CONTENT_VIEWPORT_TOP;
 
         int viewportBottom =
-                Math.max(
-                        viewportTop + TREE_ROW_HEIGHT,
-                        height - TREE_BOTTOM_MARGIN
-                );
+                getViewportBottom();
 
         if (mouseY >= viewportTop
                 && mouseY < viewportBottom) {
 
-            treeScroll -=
-                    scrollY
-                            * SCROLL_AMOUNT;
+            if (activeView
+                    == ViewMode.RECIPE_TREE) {
 
-            clampTreeScroll();
+                treeScroll -=
+                        scrollY
+                                * SCROLL_AMOUNT;
+
+                clampTreeScroll();
+
+            } else {
+
+                materialScroll -=
+                        scrollY
+                                * SCROLL_AMOUNT;
+
+                clampMaterialScroll();
+            }
 
             return true;
         }
@@ -1627,20 +2075,28 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         ResourceLocation location =
-                ResourceLocation.tryParse(itemId);
+                ResourceLocation.tryParse(
+                        itemId
+                );
 
         if (location == null) {
+
             return ItemStack.EMPTY;
         }
 
         Item item =
-                BuiltInRegistries.ITEM.get(location);
+                BuiltInRegistries.ITEM.get(
+                        location
+                );
 
         if (item == null) {
+
             return ItemStack.EMPTY;
         }
 
-        return new ItemStack(item);
+        return new ItemStack(
+                item
+        );
     }
 
     private String buildChildPath(
@@ -1661,7 +2117,9 @@ public class CraftScopeProjectScreen extends Screen
             ItemStack stack
     ) {
         return BuiltInRegistries.ITEM
-                .getKey(stack.getItem())
+                .getKey(
+                        stack.getItem()
+                )
                 .toString();
     }
 
@@ -1685,9 +2143,9 @@ public class CraftScopeProjectScreen extends Screen
         );
 
         /*
-         * A different target produces a completely different
-         * recipe tree, so recipe selections belonging to the
-         * previous target must not carry over.
+         * A different target has a different recipe tree, so
+         * recipe overrides from the previous target cannot be
+         * reused safely.
          */
         project.clearRecipeOverrides();
 
@@ -1696,6 +2154,7 @@ public class CraftScopeProjectScreen extends Screen
         recipeChoices.clear();
 
         treeScroll = 0;
+        materialScroll = 0;
 
         CraftScopeProjectManager.save();
 
@@ -1724,7 +2183,14 @@ public class CraftScopeProjectScreen extends Screen
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
+    }
+
+    private enum ViewMode {
+        RECIPE_TREE,
+        TOTAL_MATERIALS
     }
 
     private record ClickResult(
