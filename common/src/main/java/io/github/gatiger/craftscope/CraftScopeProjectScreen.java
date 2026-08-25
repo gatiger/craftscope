@@ -13,12 +13,15 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.tags.ItemTags;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class CraftScopeProjectScreen extends Screen
@@ -41,13 +44,40 @@ public class CraftScopeProjectScreen extends Screen
     private final CraftScopeProject project;
 
     /*
-     * Expanded node paths.
+     * Nodes start collapsed.
      *
-     * Empty by default, so every project starts with
-     * a collapsed tree.
+     * Expanded state currently lasts only while this project
+     * screen is open.
      */
     private final Set<String> expandedNodes =
             new HashSet<>();
+
+    /*
+     * Per-node recipe overrides.
+     *
+     * Example:
+     *
+     * root/1:minecraft:stick
+     *     -> minecraft:stick_from_bamboo
+     *
+     * These are intentionally screen-session-only for now.
+     */
+    private final Map<String, ResourceLocation> recipeOverrides =
+            new HashMap<>();
+
+    /*
+     * Keep the original ranked recipe order for each node.
+     *
+     * Once a player switches away from the default recipe,
+     * the resolver reports the selected recipe first. This
+     * cache lets the UI preserve a stable:
+     *
+     * [1/2] -> [2/2] -> [1/2]
+     *
+     * order.
+     */
+    private final Map<String, List<ResourceLocation>> recipeChoices =
+            new HashMap<>();
 
     private int targetSlotX;
     private int targetSlotY;
@@ -167,10 +197,79 @@ public class CraftScopeProjectScreen extends Screen
         currentTree =
                 CraftScopeRecipeResolver.resolveTree(
                         target,
-                        project.getTargetCount()
+                        project.getTargetCount(),
+                        recipeOverrides
                 );
 
+        populateRecipeChoices();
+
         clampTreeScroll();
+    }
+
+    /*
+     * Store the ranked recipe order the first time we encounter
+     * a node.
+     */
+    private void populateRecipeChoices() {
+        if (currentTree == null
+                || currentTree.getRoot() == null) {
+
+            return;
+        }
+
+        populateRecipeChoices(
+                currentTree.getRoot(),
+                "root"
+        );
+    }
+
+    private void populateRecipeChoices(
+            CraftScopeRecipeNode node,
+            String nodePath
+    ) {
+        if (node.getPreferredRecipeId() != null
+                && node.getTotalRecipeCount() > 1
+                && !recipeChoices.containsKey(nodePath)) {
+
+            List<ResourceLocation> choices =
+                    new ArrayList<>();
+
+            choices.add(
+                    node.getPreferredRecipeId()
+            );
+
+            choices.addAll(
+                    node.getAlternativeRecipeIds()
+            );
+
+            recipeChoices.put(
+                    nodePath,
+                    choices
+            );
+        }
+
+        List<CraftScopeRecipeNode> children =
+                node.getChildren();
+
+        for (int i = 0;
+             i < children.size();
+             i++) {
+
+            CraftScopeRecipeNode child =
+                    children.get(i);
+
+            String childPath =
+                    buildChildPath(
+                            nodePath,
+                            i,
+                            child
+                    );
+
+            populateRecipeChoices(
+                    child,
+                    childPath
+            );
+        }
     }
 
     private void craftscope$changeQuantity(
@@ -417,12 +516,6 @@ public class CraftScopeProjectScreen extends Screen
                 0xFFFFFF
         );
 
-        /*
-         * Clip everything inside the tree viewport.
-         *
-         * This is what lets us scroll without drawing over
-         * the quantity controls or Back button.
-         */
         graphics.enableScissor(
                 TREE_SIDE_MARGIN,
                 viewportTop,
@@ -484,10 +577,6 @@ public class CraftScopeProjectScreen extends Screen
         int iconX =
                 arrowX + 12;
 
-        /*
-         * Only bother drawing if this row intersects the
-         * visible viewport.
-         */
         if (rowY + TREE_ROW_HEIGHT >= viewportTop
                 && rowY <= viewportBottom) {
 
@@ -526,10 +615,15 @@ public class CraftScopeProjectScreen extends Screen
                             : 0xCCCCCC
             );
 
-            /*
-             * Tooltip uses whichever variant icon is
-             * currently being displayed.
-             */
+            renderRecipeSelector(
+                    graphics,
+                    node,
+                    nodePath,
+                    iconX,
+                    rowY,
+                    text
+            );
+
             if (mouseX >= iconX
                     && mouseX < iconX + 16
                     && mouseY >= rowY
@@ -562,13 +656,11 @@ public class CraftScopeProjectScreen extends Screen
                         children.get(i);
 
                 String childPath =
-                        nodePath
-                                + "/"
-                                + i
-                                + ":"
-                                + getItemId(
-                                        child.getStack()
-                                );
+                        buildChildPath(
+                                nodePath,
+                                i,
+                                child
+                        );
 
                 nextY =
                         renderRecipeNode(
@@ -587,6 +679,94 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         return nextY;
+    }
+
+    private void renderRecipeSelector(
+            GuiGraphics graphics,
+            CraftScopeRecipeNode node,
+            String nodePath,
+            int iconX,
+            int rowY,
+            String itemText
+    ) {
+        List<ResourceLocation> choices =
+                recipeChoices.get(nodePath);
+
+        if (choices == null
+                || choices.size() <= 1
+                || node.getPreferredRecipeId() == null) {
+
+            return;
+        }
+
+        int currentIndex =
+                getCurrentRecipeIndex(
+                        nodePath,
+                        node
+                );
+
+        String selectorText =
+                "["
+                        + (currentIndex + 1)
+                        + "/"
+                        + choices.size()
+                        + "]";
+
+        int desiredX =
+                iconX
+                        + 20
+                        + font.width(itemText)
+                        + 8;
+
+        int maxX =
+                width
+                        - TREE_SIDE_MARGIN
+                        - font.width(selectorText)
+                        - 8;
+
+        int selectorX =
+                Math.min(
+                        desiredX,
+                        maxX
+                );
+
+        graphics.drawString(
+                font,
+                selectorText,
+                selectorX,
+                rowY + 4,
+                0x55FFFF
+        );
+    }
+
+    private int getCurrentRecipeIndex(
+            String nodePath,
+            CraftScopeRecipeNode node
+    ) {
+        List<ResourceLocation> choices =
+                recipeChoices.get(nodePath);
+
+        if (choices == null
+                || choices.isEmpty()) {
+
+            return 0;
+        }
+
+        ResourceLocation selected =
+                node.getPreferredRecipeId();
+
+        for (int i = 0;
+             i < choices.size();
+             i++) {
+
+            if (choices.get(i)
+                    .equals(selected)) {
+
+                return i;
+            }
+        }
+
+        return 0;
     }
 
     private ItemStack getDisplayStack(
@@ -640,107 +820,76 @@ public class CraftScopeProjectScreen extends Screen
             return "Any " + genericName;
         }
 
-        /*
-         * We know multiple items are accepted, but we cannot
-         * safely infer a human-readable category.
-         */
         return "Any Valid Ingredient";
     }
 
     private String findGenericVariantName(
-                List<ItemStack> variants
-        ) {
+            List<ItemStack> variants
+    ) {
         if (variants.isEmpty()) {
-                return null;
+            return null;
         }
 
-        /*
-        * Prefer known Minecraft ingredient categories.
-        *
-        * This handles groups whose item names do not all share
-        * the same final word.
-        *
-        * Example:
-        *
-        * Oak Log
-        * Spruce Log
-        * Crimson Stem
-        * Warped Stem
-        *
-        * are all still part of the logs ingredient family.
-        */
         boolean allLogs = true;
         boolean allPlanks = true;
         boolean allWool = true;
 
         for (ItemStack variant : variants) {
 
-                if (!variant.is(ItemTags.LOGS)) {
+            if (!variant.is(ItemTags.LOGS)) {
                 allLogs = false;
-                }
+            }
 
-                if (!variant.is(ItemTags.PLANKS)) {
+            if (!variant.is(ItemTags.PLANKS)) {
                 allPlanks = false;
-                }
+            }
 
-                if (!variant.is(ItemTags.WOOL)) {
+            if (!variant.is(ItemTags.WOOL)) {
                 allWool = false;
-                }
+            }
         }
 
         if (allLogs) {
-                return "Log";
+            return "Log";
         }
 
         if (allPlanks) {
-                return "Planks";
+            return "Planks";
         }
 
         if (allWool) {
-                return "Wool";
+            return "Wool";
         }
 
-        /*
-        * Generic fallback for categories whose item names share
-        * a common final word.
-        *
-        * Examples:
-        *
-        * Oak Slab
-        * Spruce Slab
-        * Birch Slab
-        *
-        * -> Any Slab
-        */
         String commonSuffix = null;
 
         for (ItemStack variant : variants) {
 
-                String name =
-                        variant.getHoverName()
-                                .getString();
+            String name =
+                    variant.getHoverName()
+                            .getString();
 
-                String suffix =
-                        extractLastWord(name);
+            String suffix =
+                    extractLastWord(name);
 
-                if (suffix.isEmpty()) {
+            if (suffix.isEmpty()) {
                 return null;
-                }
+            }
 
-                if (commonSuffix == null) {
+            if (commonSuffix == null) {
 
                 commonSuffix = suffix;
 
-                } else if (!commonSuffix.equalsIgnoreCase(
-                        suffix
-                )) {
+            } else if (!commonSuffix.equalsIgnoreCase(
+                    suffix
+            )) {
 
                 return null;
-                }
+            }
         }
 
         return commonSuffix;
-        }
+    }
 
     private String extractLastWord(
             String value
@@ -861,13 +1010,11 @@ public class CraftScopeProjectScreen extends Screen
                     children.get(i);
 
             String childPath =
-                    nodePath
-                            + "/"
-                            + i
-                            + ":"
-                            + getItemId(
-                                    child.getStack()
-                            );
+                    buildChildPath(
+                            nodePath,
+                            i,
+                            child
+                    );
 
             count +=
                     countVisibleNodes(
@@ -995,14 +1142,41 @@ public class CraftScopeProjectScreen extends Screen
         int arrowX =
                 treeLeft + indent;
 
+        int iconX =
+                arrowX + 12;
+
+        String itemText =
+                getNodeDisplayName(node)
+                        + " x"
+                        + node.getRequiredCount();
+
+        /*
+         * Check the recipe selector before the expand arrow.
+         */
+        if (isRecipeSelectorClicked(
+                node,
+                nodePath,
+                iconX,
+                rowY,
+                itemText,
+                mouseX,
+                mouseY
+        )) {
+
+            cycleRecipe(
+                    nodePath,
+                    node
+            );
+
+            return new ClickResult(
+                    true,
+                    rowY + TREE_ROW_HEIGHT
+            );
+        }
+
         boolean hasChildren =
                 !node.getChildren().isEmpty();
 
-        /*
-         * Make the entire beginning of the row clickable,
-         * rather than requiring pixel-perfect clicks on
-         * the tiny arrow.
-         */
         if (hasChildren
                 && mouseY >= rowY
                 && mouseY < rowY + TREE_ROW_HEIGHT
@@ -1042,13 +1216,11 @@ public class CraftScopeProjectScreen extends Screen
                         children.get(i);
 
                 String childPath =
-                        nodePath
-                                + "/"
-                                + i
-                                + ":"
-                                + getItemId(
-                                        child.getStack()
-                                );
+                        buildChildPath(
+                                nodePath,
+                                i,
+                                child
+                        );
 
                 ClickResult result =
                         handleNodeClick(
@@ -1074,6 +1246,146 @@ public class CraftScopeProjectScreen extends Screen
                 false,
                 nextY
         );
+    }
+
+    private boolean isRecipeSelectorClicked(
+            CraftScopeRecipeNode node,
+            String nodePath,
+            int iconX,
+            int rowY,
+            String itemText,
+            double mouseX,
+            double mouseY
+    ) {
+        List<ResourceLocation> choices =
+                recipeChoices.get(nodePath);
+
+        if (choices == null
+                || choices.size() <= 1) {
+
+            return false;
+        }
+
+        int currentIndex =
+                getCurrentRecipeIndex(
+                        nodePath,
+                        node
+                );
+
+        String selectorText =
+                "["
+                        + (currentIndex + 1)
+                        + "/"
+                        + choices.size()
+                        + "]";
+
+        int desiredX =
+                iconX
+                        + 20
+                        + font.width(itemText)
+                        + 8;
+
+        int maxX =
+                width
+                        - TREE_SIDE_MARGIN
+                        - font.width(selectorText)
+                        - 8;
+
+        int selectorX =
+                Math.min(
+                        desiredX,
+                        maxX
+                );
+
+        return mouseX >= selectorX - 2
+                && mouseX
+                < selectorX
+                + font.width(selectorText)
+                + 2
+                && mouseY >= rowY
+                && mouseY
+                < rowY + TREE_ROW_HEIGHT;
+    }
+
+    private void cycleRecipe(
+            String nodePath,
+            CraftScopeRecipeNode node
+    ) {
+        List<ResourceLocation> choices =
+                recipeChoices.get(nodePath);
+
+        if (choices == null
+                || choices.size() <= 1) {
+
+            return;
+        }
+
+        int currentIndex =
+                getCurrentRecipeIndex(
+                        nodePath,
+                        node
+                );
+
+        int nextIndex =
+                (currentIndex + 1)
+                        % choices.size();
+
+        ResourceLocation nextRecipe =
+                choices.get(nextIndex);
+
+        /*
+         * If we're back on the original preferred recipe,
+         * the override is unnecessary.
+         */
+        if (nextIndex == 0) {
+
+            recipeOverrides.remove(nodePath);
+
+        } else {
+
+            recipeOverrides.put(
+                    nodePath,
+                    nextRecipe
+            );
+        }
+
+        /*
+         * A different recipe may produce completely different
+         * child nodes, so any selections underneath this node
+         * are no longer guaranteed to refer to the same branch.
+         */
+        clearDescendantRecipeState(
+                nodePath
+        );
+
+        rebuildTree();
+    }
+
+    private void clearDescendantRecipeState(
+            String nodePath
+    ) {
+        String prefix =
+                nodePath + "/";
+
+        recipeOverrides
+                .keySet()
+                .removeIf(
+                        key ->
+                                key.startsWith(prefix)
+                );
+
+        recipeChoices
+                .keySet()
+                .removeIf(
+                        key ->
+                                key.startsWith(prefix)
+                );
+
+        expandedNodes
+                .removeIf(
+                        key ->
+                                key.startsWith(prefix)
+                );
     }
 
     @Override
@@ -1139,6 +1451,20 @@ public class CraftScopeProjectScreen extends Screen
         return new ItemStack(item);
     }
 
+    private String buildChildPath(
+            String parentPath,
+            int childIndex,
+            CraftScopeRecipeNode child
+    ) {
+        return parentPath
+                + "/"
+                + childIndex
+                + ":"
+                + getItemId(
+                        child.getStack()
+                );
+    }
+
     private String getItemId(
             ItemStack stack
     ) {
@@ -1169,6 +1495,9 @@ public class CraftScopeProjectScreen extends Screen
         CraftScopeProjectManager.save();
 
         expandedNodes.clear();
+        recipeOverrides.clear();
+        recipeChoices.clear();
+
         treeScroll = 0;
 
         rebuildTree();

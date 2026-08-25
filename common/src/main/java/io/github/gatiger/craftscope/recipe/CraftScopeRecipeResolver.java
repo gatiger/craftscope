@@ -30,6 +30,18 @@ public final class CraftScopeRecipeResolver {
             ItemStack target,
             int targetCount
     ) {
+        return resolveTree(
+                target,
+                targetCount,
+                Map.of()
+        );
+    }
+
+    public static CraftScopeRecipeTree resolveTree(
+            ItemStack target,
+            int targetCount,
+            Map<String, ResourceLocation> recipeOverrides
+    ) {
         Minecraft minecraft =
                 Minecraft.getInstance();
 
@@ -58,7 +70,9 @@ public final class CraftScopeRecipeResolver {
                         registryAccess,
                         activePath,
                         0,
-                        List.of(target)
+                        List.of(target),
+                        "root",
+                        recipeOverrides
                 );
 
         return new CraftScopeRecipeTree(root);
@@ -71,7 +85,9 @@ public final class CraftScopeRecipeResolver {
             RegistryAccess registryAccess,
             Set<String> activePath,
             int depth,
-            List<ItemStack> acceptedVariants
+            List<ItemStack> acceptedVariants,
+            String nodePath,
+            Map<String, ResourceLocation> recipeOverrides
     ) {
         ItemStack stack =
                 requestedStack.copy();
@@ -89,14 +105,14 @@ public final class CraftScopeRecipeResolver {
             );
         }
 
-        RecipeHolder<?> matchingRecipe =
-                findPreferredCraftingRecipe(
+        List<RecipeCandidate> candidates =
+                findRankedCraftingRecipes(
                         stack,
                         recipeManager,
                         registryAccess
                 );
 
-        if (matchingRecipe == null) {
+        if (candidates.isEmpty()) {
 
             return createLeaf(
                     stack,
@@ -105,8 +121,17 @@ public final class CraftScopeRecipeResolver {
             );
         }
 
+        RecipeCandidate selectedCandidate =
+                chooseCandidate(
+                        candidates,
+                        recipeOverrides.get(nodePath)
+                );
+
+        RecipeHolder<?> selectedHolder =
+                selectedCandidate.holder();
+
         Recipe<?> recipe =
-                matchingRecipe.value();
+                selectedHolder.value();
 
         ItemStack output =
                 recipe.getResultItem(
@@ -125,13 +150,32 @@ public final class CraftScopeRecipeResolver {
                         outputCount
                 );
 
+        List<ResourceLocation> alternativeRecipeIds =
+                new ArrayList<>();
+
+        for (RecipeCandidate candidate :
+                candidates) {
+
+            ResourceLocation id =
+                    candidate.holder().id();
+
+            if (!id.equals(
+                    selectedHolder.id()
+            )) {
+
+                alternativeRecipeIds.add(id);
+            }
+        }
+
         CraftScopeRecipeNode node =
                 new CraftScopeRecipeNode(
                         stack,
                         requestedCount,
                         craftsNeeded,
                         true,
-                        acceptedVariants
+                        acceptedVariants,
+                        selectedHolder.id(),
+                        alternativeRecipeIds
                 );
 
         activePath.add(key);
@@ -199,12 +243,23 @@ public final class CraftScopeRecipeResolver {
             }
         }
 
+        int childIndex = 0;
+
         for (IngredientGroup group :
                 grouped.values()) {
 
             int requiredIngredientCount =
                     group.countPerCraft()
                             * craftsNeeded;
+
+            String childPath =
+                    nodePath
+                            + "/"
+                            + childIndex
+                            + ":"
+                            + getItemKey(
+                                    group.stack()
+                            );
 
             CraftScopeRecipeNode child =
                     resolveNode(
@@ -214,10 +269,14 @@ public final class CraftScopeRecipeResolver {
                             registryAccess,
                             activePath,
                             depth + 1,
-                            group.variants()
+                            group.variants(),
+                            childPath,
+                            recipeOverrides
                     );
 
             node.addChild(child);
+
+            childIndex++;
         }
 
         activePath.remove(key);
@@ -225,7 +284,28 @@ public final class CraftScopeRecipeResolver {
         return node;
     }
 
-    private static RecipeHolder<?> findPreferredCraftingRecipe(
+    private static RecipeCandidate chooseCandidate(
+            List<RecipeCandidate> candidates,
+            ResourceLocation overrideId
+    ) {
+        if (overrideId != null) {
+
+            for (RecipeCandidate candidate :
+                    candidates) {
+
+                if (candidate.holder()
+                        .id()
+                        .equals(overrideId)) {
+
+                    return candidate;
+                }
+            }
+        }
+
+        return candidates.getFirst();
+    }
+
+    private static List<RecipeCandidate> findRankedCraftingRecipes(
             ItemStack target,
             RecipeManager recipeManager,
             RegistryAccess registryAccess
@@ -276,10 +356,6 @@ public final class CraftScopeRecipeResolver {
             );
         }
 
-        if (candidates.isEmpty()) {
-            return null;
-        }
-
         candidates.sort(
                 Comparator
                         .comparingInt(
@@ -294,9 +370,7 @@ public final class CraftScopeRecipeResolver {
                         )
         );
 
-        return candidates
-                .getFirst()
-                .holder();
+        return candidates;
     }
 
     private static int scoreRecipe(
@@ -322,21 +396,6 @@ public final class CraftScopeRecipeResolver {
             ItemStack[] possibilities =
                     ingredient.getItems();
 
-            /*
-             * Variant breadth is useful, but it should only
-             * be a small preference.
-             *
-             * This lets:
-             *
-             * Any Planks -> Sticks
-             *
-             * beat:
-             *
-             * Bamboo -> Sticks
-             *
-             * without causing highly-variable recipes such as
-             * dyeing wool to dominate simpler normal recipes.
-             */
             int breadthBonus =
                     Math.min(
                             possibilities.length,
@@ -365,15 +424,8 @@ public final class CraftScopeRecipeResolver {
             }
         }
 
-        /*
-         * More substantial crafting recipes generally rank
-         * above one-off transformation recipes.
-         */
         score += ingredientSlots * 5;
 
-        /*
-         * Keep this bonus deliberately small.
-         */
         score += Math.min(
                 uniqueItems.size(),
                 3
@@ -437,20 +489,6 @@ public final class CraftScopeRecipeResolver {
             return false;
         }
 
-        /*
-         * A one-input, multi-output recipe is only considered
-         * storage/decompression if CraftScope can find the
-         * reverse conversion too.
-         *
-         * Diamond Block -> Diamonds
-         * Diamonds -> Diamond Block
-         *
-         * therefore qualifies.
-         *
-         * Log -> Planks
-         *
-         * does not, because there is no Planks -> Log recipe.
-         */
         for (ItemStack input :
                 inputs) {
 
@@ -613,7 +651,9 @@ public final class CraftScopeRecipeResolver {
                 requiredCount,
                 0,
                 false,
-                variants
+                variants,
+                null,
+                List.of()
         );
     }
 
