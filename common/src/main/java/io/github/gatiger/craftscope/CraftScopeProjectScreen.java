@@ -3,10 +3,13 @@ package io.github.gatiger.craftscope;
 import io.github.gatiger.craftscope.client.CraftScopeTargetItemReceiver;
 import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
 import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
+import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
+import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
+import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
@@ -15,6 +18,7 @@ import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
 import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
 import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
 import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
+import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
@@ -24,7 +28,6 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -46,11 +49,6 @@ public class CraftScopeProjectScreen
     private static final int WINDOW_MARGIN =
             8;
 
-    /*
-     * Recipe Tree leaves this amount of room for JEI.
-     *
-     * Other tabs reclaim the right side because JEI is hidden.
-     */
     private static final int JEI_RESERVED_WIDTH =
             170;
 
@@ -114,21 +112,12 @@ public class CraftScopeProjectScreen
     private final Screen parent;
     private final CraftScopeProject project;
 
-    /*
-     * Recipe Tree expansion state lasts for this screen instance.
-     */
     private final Set<String> expandedNodes =
             new HashSet<>();
 
-    /*
-     * Active recipe overrides loaded from the saved project.
-     */
     private final Map<String, ResourceLocation> recipeOverrides =
             new HashMap<>();
 
-    /*
-     * Stable ordering for Recipe Tree [1/2] selectors.
-     */
     private final Map<String, List<ResourceLocation>> recipeChoices =
             new HashMap<>();
 
@@ -157,7 +146,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * New generalized production-route UI state
+     * Production-route / diagram state
      * ---------------------------------------------------------
      */
 
@@ -165,6 +154,9 @@ public class CraftScopeProjectScreen
             List.of();
 
     private int selectedProductionRouteIndex =
+            -1;
+
+    private int selectedDiagramNodeIndex =
             -1;
 
     public CraftScopeProjectScreen(
@@ -223,12 +215,6 @@ public class CraftScopeProjectScreen
         int controlRight =
                 getRecipeSafeRight();
 
-        /*
-         * -----------------------------------------------------
-         * Compact target row
-         * -----------------------------------------------------
-         */
-
         int targetRowTop =
                 WINDOW_MARGIN
                         + HEADER_HEIGHT;
@@ -260,13 +246,6 @@ public class CraftScopeProjectScreen
                 targetRowTop
                         + 8;
 
-        /*
-         * The field is intentionally unbordered because
-         * CraftScope draws the surrounding field itself.
-         *
-         * +5 aligns the number vertically with Quantity and
-         * the - / + buttons.
-         */
         quantityField =
                 new EditBox(
                         font,
@@ -334,9 +313,7 @@ public class CraftScopeProjectScreen
         );
 
         /*
-         * -----------------------------------------------------
-         * Main tabs
-         * -----------------------------------------------------
+         * Tabs
          */
 
         int tabX =
@@ -436,9 +413,7 @@ public class CraftScopeProjectScreen
                 );
 
         /*
-         * -----------------------------------------------------
-         * Header controls
-         * -----------------------------------------------------
+         * Header buttons
          */
 
         int headerButtonY =
@@ -601,7 +576,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Responsive CraftScope window
+     * Responsive window
      * ---------------------------------------------------------
      */
 
@@ -618,10 +593,6 @@ public class CraftScopeProjectScreen
                 - WINDOW_MARGIN;
     }
 
-    /*
-     * Header controls and target quantity always remain left of
-     * JEI, even when another tab later expands farther right.
-     */
     private int getRecipeSafeRight() {
         int fullRight =
                 width
@@ -672,10 +643,6 @@ public class CraftScopeProjectScreen
         ) / 2;
     }
 
-    /*
-     * Public bounds used by JEI.
-     */
-
     public int craftscope$getWindowLeft() {
         return getWindowLeft();
     }
@@ -718,6 +685,9 @@ public class CraftScopeProjectScreen
             selectedProductionRouteIndex =
                     -1;
 
+            selectedDiagramNodeIndex =
+                    -1;
+
             treeScroll =
                     0;
 
@@ -727,10 +697,6 @@ public class CraftScopeProjectScreen
             return;
         }
 
-        /*
-         * Legacy Recipe Tree is still used for Recipe Tree and
-         * Total Materials.
-         */
         currentTree =
                 CraftScopeRecipeResolver.resolveTree(
                         target,
@@ -743,9 +709,6 @@ public class CraftScopeProjectScreen
                         currentTree
                 );
 
-        /*
-         * New production model drives Process Diagram.
-         */
         rebuildProductionRoutes(
                 target
         );
@@ -776,6 +739,9 @@ public class CraftScopeProjectScreen
             selectedProductionRouteIndex =
                     -1;
 
+            selectedDiagramNodeIndex =
+                    -1;
+
             return;
         }
 
@@ -785,6 +751,9 @@ public class CraftScopeProjectScreen
 
             selectedProductionRouteIndex =
                     0;
+
+            selectedDiagramNodeIndex =
+                    -1;
         }
     }
 
@@ -1052,9 +1021,6 @@ public class CraftScopeProjectScreen
                 mouseY
         );
 
-        /*
-         * Integrated tab strip.
-         */
         graphics.fill(
                 windowLeft + 1,
                 VIEW_BUTTON_Y - 3,
@@ -1102,12 +1068,6 @@ public class CraftScopeProjectScreen
                     );
         }
 
-        /*
-         * Render widgets last.
-         *
-         * CraftScopeBaseScreen prevents Minecraft's normal menu
-         * blur from being drawn here.
-         */
         super.render(
                 graphics,
                 mouseX,
@@ -1268,10 +1228,6 @@ public class CraftScopeProjectScreen
                 CraftScopeUiTheme.BORDER
         );
 
-        /*
-         * Align label to the LEFT of the minus button, rather
-         * than relative to the number field.
-         */
         int quantityLabelX =
                 minusX
                         - 8
@@ -1925,17 +1881,6 @@ public class CraftScopeProjectScreen
      * ---------------------------------------------------------
      * Process Diagram
      * ---------------------------------------------------------
-     *
-     * This is the first screen pass backed by the generalized
-     * CraftScopeProductionRoute model.
-     *
-     * Current milestone:
-     *
-     * - real route discovery
-     * - real route selection
-     * - real route / method details
-     *
-     * Actual graph nodes and arrows come next.
      */
 
     private void renderProcessDiagram(
@@ -1943,14 +1888,6 @@ public class CraftScopeProjectScreen
     ) {
         ProcessLayout layout =
                 getProcessLayout();
-
-        /*
-         * Left column:
-         *
-         * Production Routes
-         * Production Resources
-         * Legend
-         */
 
         drawPanel(
                 graphics,
@@ -2015,10 +1952,6 @@ public class CraftScopeProjectScreen
                 layout.routesBottom()
         );
 
-        /*
-         * Resource panel is still a placeholder until route
-         * support-resource expansion is wired in.
-         */
         graphics.drawString(
                 font,
                 "+ Fluids",
@@ -2060,7 +1993,7 @@ public class CraftScopeProjectScreen
         );
 
         /*
-         * Center diagram panel.
+         * Center diagram
          */
 
         drawPanel(
@@ -2080,7 +2013,7 @@ public class CraftScopeProjectScreen
         );
 
         /*
-         * Right route/details panel.
+         * Right details
          */
 
         drawPanel(
@@ -2096,7 +2029,7 @@ public class CraftScopeProjectScreen
                 layout.detailsLeft(),
                 layout.top(),
                 layout.right(),
-                "Selected Route"
+                getProcessDetailsTitle()
         );
 
         renderSelectedProductionRoute(
@@ -2116,12 +2049,6 @@ public class CraftScopeProjectScreen
         );
     }
 
-    /*
-     * Shared geometry used both for drawing and route clicking.
-     *
-     * Keeping it in one place prevents the clickable rows from
-     * drifting away from the visual route list.
-     */
     private ProcessLayout getProcessLayout() {
         int left =
                 getContentLeft();
@@ -2379,50 +2306,69 @@ public class CraftScopeProjectScreen
         }
     }
 
+    private String getProcessDetailsTitle() {
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
+        CraftScopeProcessDiagramRenderer.Selection selection =
+                CraftScopeProcessDiagramRenderer.getSelection(
+                        route,
+                        project.getTargetCount(),
+                        selectedDiagramNodeIndex
+                );
+
+        if (selection == null) {
+            return "Selected Route";
+        }
+
+        if (selection.isResource()) {
+            return "Selected Resource";
+        }
+
+        return "Selected Process";
+    }
+
     private void renderSelectedProductionRoute(
-                GuiGraphics graphics,
-                int centerLeft,
-                int centerRight,
-                int detailsLeft,
-                int detailsRight,
-                int top,
-                int bottom
-        ) {
+            GuiGraphics graphics,
+            int centerLeft,
+            int centerRight,
+            int detailsLeft,
+            int detailsRight,
+            int top,
+            int bottom
+    ) {
         CraftScopeProductionRoute route =
                 getSelectedProductionRoute();
 
         if (route == null) {
 
-                graphics.drawCenteredString(
-                        font,
-                        "Select a production route.",
-                        centerLeft
-                                + (
-                                centerRight
-                                        - centerLeft
-                        ) / 2,
-                        top + 45,
-                        CraftScopeUiTheme.TEXT_MUTED
-                );
+            graphics.drawCenteredString(
+                    font,
+                    "Select a production route.",
+                    centerLeft
+                            + (
+                            centerRight
+                                    - centerLeft
+                    ) / 2,
+                    top + 45,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
 
-                graphics.drawCenteredString(
-                        font,
-                        "No route selected",
-                        detailsLeft
-                                + (
-                                detailsRight
-                                        - detailsLeft
-                        ) / 2,
-                        top + 45,
-                        CraftScopeUiTheme.TEXT_MUTED
-                );
+            graphics.drawCenteredString(
+                    font,
+                    "No route selected",
+                    detailsLeft
+                            + (
+                            detailsRight
+                                    - detailsLeft
+                    ) / 2,
+                    top + 45,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
 
-                return;
+            return;
         }
 
-        /*
-        * Real visual route diagram.
-        */
         CraftScopeProcessDiagramRenderer.render(
                 graphics,
                 font,
@@ -2431,15 +2377,63 @@ public class CraftScopeProjectScreen
                 top + 25,
                 centerRight - 6,
                 bottom - 6,
-                project.getTargetCount()
+                project.getTargetCount(),
+                selectedDiagramNodeIndex
         );
 
-        /*
-        * ---------------------------------------------------------
-        * Right-side route details
-        * ---------------------------------------------------------
-        */
+        CraftScopeProcessDiagramRenderer.Selection selection =
+                CraftScopeProcessDiagramRenderer.getSelection(
+                        route,
+                        project.getTargetCount(),
+                        selectedDiagramNodeIndex
+                );
 
+        if (selection == null) {
+
+            renderRouteDetails(
+                    graphics,
+                    route,
+                    detailsLeft,
+                    detailsRight,
+                    top,
+                    bottom
+            );
+
+            return;
+        }
+
+        if (selection.isResource()) {
+
+            renderResourceSelectionDetails(
+                    graphics,
+                    selection,
+                    detailsLeft,
+                    detailsRight,
+                    top,
+                    bottom
+            );
+
+        } else {
+
+            renderProcessSelectionDetails(
+                    graphics,
+                    selection,
+                    detailsLeft,
+                    detailsRight,
+                    top,
+                    bottom
+            );
+        }
+    }
+
+    private void renderRouteDetails(
+            GuiGraphics graphics,
+            CraftScopeProductionRoute route,
+            int detailsLeft,
+            int detailsRight,
+            int top,
+            int bottom
+    ) {
         int textX =
                 detailsLeft + 9;
 
@@ -2512,17 +2506,377 @@ public class CraftScopeProjectScreen
         );
 
         y +=
-                20;
+                22;
 
-        if (!route.steps().isEmpty()) {
+        if (y <= bottom - 28) {
 
-                CraftScopeProductionStep firstStep =
-                        route.steps()
-                                .getFirst();
+            graphics.drawString(
+                    font,
+                    "Click an item or process",
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            y +=
+                    14;
+
+            graphics.drawString(
+                    font,
+                    "in the diagram for details.",
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+        }
+    }
+
+    private void renderResourceSelectionDetails(
+            GuiGraphics graphics,
+            CraftScopeProcessDiagramRenderer.Selection selection,
+            int detailsLeft,
+            int detailsRight,
+            int top,
+            int bottom
+    ) {
+        CraftScopeResourceAmount resource =
+                selection.resource();
+
+        int centerX =
+                (
+                        detailsLeft
+                                + detailsRight
+                ) / 2;
+
+        ItemStack displayStack =
+                CraftScopeProcessDiagramRenderer
+                        .getSelectionDisplayStack(
+                                selection
+                        );
+
+        if (!displayStack.isEmpty()) {
+
+            renderDetailItem(
+                    graphics,
+                    displayStack,
+                    centerX,
+                    top + 31
+            );
+        }
+
+        String displayName =
+                CraftScopeProcessDiagramRenderer
+                        .getSelectionDisplayName(
+                                selection
+                        );
+
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        displayName,
+                        detailsRight
+                                - detailsLeft
+                                - 18
+                ),
+                centerX,
+                top + 67,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+
+        int textX =
+                detailsLeft + 9;
+
+        int y =
+                top + 88;
+
+        graphics.drawString(
+                font,
+                "Required",
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+
+        y +=
+                14;
+
+        String amountText =
+                resource.hasUnit()
+                        ? selection.amount()
+                        + " "
+                        + resource.unit()
+                        : "x"
+                        + selection.amount();
+
+        graphics.drawString(
+                font,
+                amountText,
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+
+        y +=
+                22;
+
+        graphics.drawString(
+                font,
+                "Type",
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+
+        y +=
+                14;
+
+        graphics.drawString(
+                font,
+                formatResourceKind(
+                        resource
+                ),
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        y +=
+                22;
+
+        graphics.drawString(
+                font,
+                "Consumed: "
+                        + (
+                        resource.consumed()
+                                ? "Yes"
+                                : "No"
+                ),
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        y +=
+                18;
+
+        if (resource.hasVariants()
+                && y <= bottom - 14) {
+
+            graphics.drawString(
+                    font,
+                    "Variants: "
+                            + resource
+                            .acceptedVariantIds()
+                            .size(),
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            y +=
+                    15;
+
+            int shown =
+                    0;
+
+            for (ResourceLocation variant :
+                    resource.acceptedVariantIds()) {
+
+                if (shown >= 3
+                        || y > bottom - 14) {
+
+                    break;
+                }
 
                 graphics.drawString(
                         font,
-                        "Methods",
+                        fitText(
+                                "• "
+                                        + variant.getPath(),
+                                detailsRight
+                                        - textX
+                                        - 8
+                        ),
+                        textX,
+                        y,
+                        CraftScopeUiTheme.TEXT_MUTED
+                );
+
+                y +=
+                        13;
+
+                shown++;
+            }
+        }
+    }
+
+    private void renderProcessSelectionDetails(
+            GuiGraphics graphics,
+            CraftScopeProcessDiagramRenderer.Selection selection,
+            int detailsLeft,
+            int detailsRight,
+            int top,
+            int bottom
+    ) {
+        CraftScopeProductionStep step =
+                selection.step();
+
+        int centerX =
+                (
+                        detailsLeft
+                                + detailsRight
+                ) / 2;
+
+        ItemStack displayStack =
+                CraftScopeProcessDiagramRenderer
+                        .getSelectionDisplayStack(
+                                selection
+                        );
+
+        if (!displayStack.isEmpty()) {
+
+            renderDetailItem(
+                    graphics,
+                    displayStack,
+                    centerX,
+                    top + 31
+            );
+        }
+
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        step.displayName()
+                                .getString(),
+                        detailsRight
+                                - detailsLeft
+                                - 18
+                ),
+                centerX,
+                top + 67,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+
+        int textX =
+                detailsLeft + 9;
+
+        int y =
+                top + 88;
+
+        graphics.drawString(
+                font,
+                "Methods",
+                textX,
+                y,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+
+        y +=
+                14;
+
+        for (CraftScopeProductionMethod method :
+                step.methods()) {
+
+            if (y > bottom - 14) {
+                break;
+            }
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            "• "
+                                    + method
+                                    .displayName()
+                                    .getString(),
+                            detailsRight
+                                    - textX
+                                    - 8
+                    ),
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            y +=
+                    14;
+        }
+
+        y +=
+                5;
+
+        if (y <= bottom - 14) {
+
+            graphics.drawString(
+                    font,
+                    "Machines",
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            y +=
+                    14;
+
+            boolean foundMachine =
+                    false;
+
+            Set<ResourceLocation> shownMachineIds =
+                    new HashSet<>();
+
+            for (CraftScopeProductionMethod method :
+                    step.methods()) {
+
+                for (CraftScopeProcessRequirement requirement :
+                        method.requirements()) {
+
+                    if (requirement.kind()
+                            != CraftScopeRequirementKind.MACHINE) {
+
+                        continue;
+                    }
+
+                    if (requirement.id() != null
+                            && !shownMachineIds.add(
+                            requirement.id()
+                    )) {
+
+                        continue;
+                    }
+
+                    foundMachine =
+                            true;
+
+                    if (y > bottom - 14) {
+                        break;
+                    }
+
+                    graphics.drawString(
+                            font,
+                            fitText(
+                                    "• "
+                                            + requirement
+                                            .displayName()
+                                            .getString(),
+                                    detailsRight
+                                            - textX
+                                            - 8
+                            ),
+                            textX,
+                            y,
+                            CraftScopeUiTheme.TEXT_SECONDARY
+                    );
+
+                    y +=
+                            14;
+                }
+            }
+
+            if (!foundMachine
+                    && y <= bottom - 14) {
+
+                graphics.drawString(
+                        font,
+                        "None required",
                         textX,
                         y,
                         CraftScopeUiTheme.TEXT_MUTED
@@ -2530,38 +2884,91 @@ public class CraftScopeProjectScreen
 
                 y +=
                         14;
+            }
+        }
 
-                for (CraftScopeProductionMethod method :
-                        firstStep.methods()) {
+        y +=
+                5;
 
-                if (y > bottom - 14) {
-                        break;
-                }
+        if (y <= bottom - 14) {
 
-                String methodName =
-                        "• "
-                                + method
-                                .displayName()
-                                .getString();
+            graphics.drawString(
+                    font,
+                    "Inputs: "
+                            + step.inputs().size(),
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
 
-                graphics.drawString(
-                        font,
-                        fitText(
-                                methodName,
-                                detailsRight
-                                        - textX
-                                        - 8
-                        ),
-                        textX,
+            y +=
+                    14;
+        }
+
+        if (y <= bottom - 14) {
+
+            graphics.drawString(
+                    font,
+                    "Outputs: "
+                            + step.outputs().size(),
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+        }
+    }
+
+    private String formatResourceKind(
+            CraftScopeResourceAmount resource
+    ) {
+        return switch (resource.kind()) {
+
+            case ITEM ->
+                    "Item";
+
+            case FLUID ->
+                    "Fluid";
+
+            case CHEMICAL ->
+                    "Chemical";
+
+            case OTHER ->
+                    "Other";
+        };
+    }
+
+    private void renderDetailItem(
+            GuiGraphics graphics,
+            ItemStack stack,
+            int centerX,
+            int y
+    ) {
+        graphics.pose()
+                .pushPose();
+
+        graphics.pose()
+                .translate(
+                        centerX - 16.0F,
                         y,
-                        CraftScopeUiTheme.TEXT_SECONDARY
+                        0.0F
                 );
 
-                y +=
-                        14;
-                }
-        }
-        }
+        graphics.pose()
+                .scale(
+                        2.0F,
+                        2.0F,
+                        1.0F
+                );
+
+        graphics.renderItem(
+                stack,
+                0,
+                0
+        );
+
+        graphics.pose()
+                .popPose();
+    }
 
     private CraftScopeProductionRoute getSelectedProductionRoute() {
         if (selectedProductionRouteIndex < 0
@@ -2650,7 +3057,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Setup shell
+     * Setup
      * ---------------------------------------------------------
      */
 
@@ -2750,7 +3157,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Bottom Process / Setup summary
+     * Bottom summary
      * ---------------------------------------------------------
      */
 
@@ -2959,7 +3366,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Variant display helpers
+     * Variant helpers
      * ---------------------------------------------------------
      */
 
@@ -3232,7 +3639,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Scroll bars
+     * Scrolling
      * ---------------------------------------------------------
      */
 
@@ -3437,6 +3844,17 @@ public class CraftScopeProjectScreen
         if (activeView
                 == ViewMode.PROCESS_DIAGRAM
                 && button == 0
+                && handleProcessDiagramNodeClick(
+                mouseX,
+                mouseY
+        )) {
+
+            return true;
+        }
+
+        if (activeView
+                == ViewMode.PROCESS_DIAGRAM
+                && button == 0
                 && handleProductionRouteClick(
                 mouseX,
                 mouseY
@@ -3461,6 +3879,42 @@ public class CraftScopeProjectScreen
                 mouseY,
                 button
         );
+    }
+
+    private boolean handleProcessDiagramNodeClick(
+            double mouseX,
+            double mouseY
+    ) {
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
+        if (route == null) {
+            return false;
+        }
+
+        ProcessLayout layout =
+                getProcessLayout();
+
+        CraftScopeProcessDiagramRenderer.Selection selection =
+                CraftScopeProcessDiagramRenderer.hitTest(
+                        route,
+                        layout.centerLeft() + 6,
+                        layout.top() + 25,
+                        layout.centerRight() - 6,
+                        layout.mainBottom() - 6,
+                        project.getTargetCount(),
+                        mouseX,
+                        mouseY
+                );
+
+        if (selection == null) {
+            return false;
+        }
+
+        selectedDiagramNodeIndex =
+                selection.nodeIndex();
+
+        return true;
     }
 
     private boolean handleProductionRouteClick(
@@ -3529,6 +3983,9 @@ public class CraftScopeProjectScreen
 
         selectedProductionRouteIndex =
                 clickedIndex;
+
+        selectedDiagramNodeIndex =
+                -1;
 
         return true;
     }
@@ -4038,10 +4495,6 @@ public class CraftScopeProjectScreen
                 itemId.toString()
         );
 
-        /*
-         * A new target has a completely different tree and route
-         * list, so saved node-specific state cannot carry over.
-         */
         project.clearRecipeOverrides();
 
         expandedNodes.clear();
@@ -4049,6 +4502,9 @@ public class CraftScopeProjectScreen
         recipeChoices.clear();
 
         selectedProductionRouteIndex =
+                -1;
+
+        selectedDiagramNodeIndex =
                 -1;
 
         treeScroll =
@@ -4102,7 +4558,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Small internal models
+     * Internal models
      * ---------------------------------------------------------
      */
 

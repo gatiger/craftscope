@@ -19,27 +19,6 @@ import net.minecraft.world.item.Items;
 import java.util.ArrayList;
 import java.util.List;
 
-/*
- * Visual renderer for CraftScope production routes.
- *
- * The renderer deliberately knows nothing about Screen widgets
- * or project management. It receives a production route and a
- * rectangular drawing area and turns that route into nodes and
- * connections.
- *
- * Current milestone:
- *
- *     resource -> process -> resource
- *
- * Longer routes automatically wrap into a serpentine layout:
- *
- *     A -> Process -> B -> Process -> C
- *                                  |
- *     E <- Process <- D <- Process <
- *
- * This gives us a scalable base for future Mekanism / Create
- * production chains before pan and zoom are added.
- */
 public final class CraftScopeProcessDiagramRenderer {
 
     private static final int NODE_WIDTH =
@@ -63,6 +42,12 @@ public final class CraftScopeProcessDiagramRenderer {
     private CraftScopeProcessDiagramRenderer() {
     }
 
+    /*
+     * ---------------------------------------------------------
+     * Public rendering API
+     * ---------------------------------------------------------
+     */
+
     public static void render(
             GuiGraphics graphics,
             Font font,
@@ -72,6 +57,30 @@ public final class CraftScopeProcessDiagramRenderer {
             int right,
             int bottom,
             long requestedTargetCount
+    ) {
+        render(
+                graphics,
+                font,
+                route,
+                left,
+                top,
+                right,
+                bottom,
+                requestedTargetCount,
+                -1
+        );
+    }
+
+    public static void render(
+            GuiGraphics graphics,
+            Font font,
+            CraftScopeProductionRoute route,
+            int left,
+            int top,
+            int right,
+            int bottom,
+            long requestedTargetCount,
+            int selectedNodeIndex
     ) {
         if (route == null) {
 
@@ -105,13 +114,17 @@ public final class CraftScopeProcessDiagramRenderer {
                 CraftScopeUiTheme.SUCCESS
         );
 
-        List<DiagramNode> nodes =
-                buildNodes(
+        DiagramLayout layout =
+                buildDiagramLayout(
                         route,
+                        left,
+                        top,
+                        right,
+                        bottom,
                         requestedTargetCount
                 );
 
-        if (nodes.isEmpty()) {
+        if (layout.nodes().isEmpty()) {
 
             graphics.drawCenteredString(
                     font,
@@ -122,6 +135,188 @@ public final class CraftScopeProcessDiagramRenderer {
             );
 
             return;
+        }
+
+        /*
+         * Connections first so nodes remain above them.
+         */
+        for (int i = 0;
+             i < layout.positions().size() - 1;
+             i++) {
+
+            boolean highlighted =
+                    selectedNodeIndex == i
+                            || selectedNodeIndex == i + 1;
+
+            drawConnection(
+                    graphics,
+                    layout.positions().get(i),
+                    layout.positions().get(i + 1),
+                    highlighted
+            );
+        }
+
+        for (int i = 0;
+             i < layout.nodes().size();
+             i++) {
+
+            drawNode(
+                    graphics,
+                    font,
+                    layout.nodes().get(i),
+                    layout.positions().get(i),
+                    selectedNodeIndex == i
+            );
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Public interaction API
+     * ---------------------------------------------------------
+     */
+
+    public static Selection hitTest(
+            CraftScopeProductionRoute route,
+            int left,
+            int top,
+            int right,
+            int bottom,
+            long requestedTargetCount,
+            double mouseX,
+            double mouseY
+    ) {
+        if (route == null) {
+            return null;
+        }
+
+        DiagramLayout layout =
+                buildDiagramLayout(
+                        route,
+                        left,
+                        top,
+                        right,
+                        bottom,
+                        requestedTargetCount
+                );
+
+        for (int i = 0;
+             i < layout.positions().size();
+             i++) {
+
+            NodePosition position =
+                    layout.positions().get(i);
+
+            if (mouseX >= position.x()
+                    && mouseX < position.right()
+                    && mouseY >= position.y()
+                    && mouseY < position.bottom()) {
+
+                return layout.nodes()
+                        .get(i)
+                        .toSelection(
+                                i
+                        );
+            }
+        }
+
+        return null;
+    }
+
+    public static Selection getSelection(
+            CraftScopeProductionRoute route,
+            long requestedTargetCount,
+            int nodeIndex
+    ) {
+        if (route == null
+                || nodeIndex < 0) {
+
+            return null;
+        }
+
+        List<DiagramNode> nodes =
+                buildNodes(
+                        route,
+                        requestedTargetCount
+                );
+
+        if (nodeIndex >= nodes.size()) {
+            return null;
+        }
+
+        return nodes
+                .get(nodeIndex)
+                .toSelection(
+                        nodeIndex
+                );
+    }
+
+    public static ItemStack getSelectionDisplayStack(
+            Selection selection
+    ) {
+        if (selection == null) {
+            return ItemStack.EMPTY;
+        }
+
+        if (selection.kind()
+                == SelectionKind.RESOURCE) {
+
+            return getResourceStack(
+                    selection.resource()
+            );
+        }
+
+        return getProcessStack(
+                selection.step()
+        );
+    }
+
+    public static String getSelectionDisplayName(
+            Selection selection
+    ) {
+        if (selection == null) {
+            return "";
+        }
+
+        if (selection.kind()
+                == SelectionKind.RESOURCE) {
+
+            return getResourceDisplayName(
+                    selection.resource()
+            );
+        }
+
+        return selection.step()
+                .displayName()
+                .getString();
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Shared diagram layout
+     * ---------------------------------------------------------
+     */
+
+    private static DiagramLayout buildDiagramLayout(
+            CraftScopeProductionRoute route,
+            int left,
+            int top,
+            int right,
+            int bottom,
+            long requestedTargetCount
+    ) {
+        List<DiagramNode> nodes =
+                buildNodes(
+                        route,
+                        requestedTargetCount
+                );
+
+        if (nodes.isEmpty()) {
+
+            return new DiagramLayout(
+                    nodes,
+                    List.of()
+            );
         }
 
         int diagramTop =
@@ -209,32 +404,10 @@ public final class CraftScopeProcessDiagramRenderer {
                         startY
                 );
 
-        /*
-         * Connections are drawn first so node cards remain on
-         * top of the lines.
-         */
-        for (int i = 0;
-             i < positions.size() - 1;
-             i++) {
-
-            drawConnection(
-                    graphics,
-                    positions.get(i),
-                    positions.get(i + 1)
-            );
-        }
-
-        for (int i = 0;
-             i < nodes.size();
-             i++) {
-
-            drawNode(
-                    graphics,
-                    font,
-                    nodes.get(i),
-                    positions.get(i)
-            );
-        }
+        return new DiagramLayout(
+                nodes,
+                positions
+        );
     }
 
     /*
@@ -250,7 +423,9 @@ public final class CraftScopeProcessDiagramRenderer {
         List<DiagramNode> nodes =
                 new ArrayList<>();
 
-        if (route.steps().isEmpty()) {
+        if (route == null
+                || route.steps().isEmpty()) {
+
             return nodes;
         }
 
@@ -399,7 +574,7 @@ public final class CraftScopeProcessDiagramRenderer {
 
     /*
      * ---------------------------------------------------------
-     * Node drawing
+     * Node rendering
      * ---------------------------------------------------------
      */
 
@@ -407,7 +582,8 @@ public final class CraftScopeProcessDiagramRenderer {
             GuiGraphics graphics,
             Font font,
             DiagramNode node,
-            NodePosition position
+            NodePosition position,
+            boolean selected
     ) {
         CraftScopeUiTheme.drawPanel(
                 graphics,
@@ -415,8 +591,22 @@ public final class CraftScopeProcessDiagramRenderer {
                 position.y(),
                 position.right(),
                 position.bottom(),
-                CraftScopeUiTheme.PANEL_BACKGROUND_ALT
+                selected
+                        ? CraftScopeUiTheme.ACCENT_BACKGROUND
+                        : CraftScopeUiTheme.PANEL_BACKGROUND_ALT
         );
+
+        if (selected) {
+
+            CraftScopeUiTheme.drawBorder(
+                    graphics,
+                    position.x(),
+                    position.y(),
+                    position.right(),
+                    position.bottom(),
+                    CraftScopeUiTheme.ACCENT_HOVER
+            );
+        }
 
         if (node.kind()
                 == DiagramNodeKind.RESOURCE) {
@@ -473,16 +663,13 @@ public final class CraftScopeProcessDiagramRenderer {
             );
         }
 
-        String name =
-                getResourceDisplayName(
-                        resource
-                );
-
         graphics.drawCenteredString(
                 font,
                 fitText(
                         font,
-                        name,
+                        getResourceDisplayName(
+                                resource
+                        ),
                         position.width() - 8
                 ),
                 position.x()
@@ -491,15 +678,12 @@ public final class CraftScopeProcessDiagramRenderer {
                 CraftScopeUiTheme.TEXT_PRIMARY
         );
 
-        String amountText =
+        graphics.drawCenteredString(
+                font,
                 formatAmount(
                         resource,
                         node.amount()
-                );
-
-        graphics.drawCenteredString(
-                font,
-                amountText,
+                ),
                 position.x()
                         + position.width() / 2,
                 position.y() + 56,
@@ -591,16 +775,13 @@ public final class CraftScopeProcessDiagramRenderer {
             );
         }
 
-        String methodName =
-                getMethodDisplayName(
-                        step
-                );
-
         graphics.drawCenteredString(
                 font,
                 fitText(
                         font,
-                        methodName,
+                        getMethodDisplayName(
+                                step
+                        ),
                         position.width() - 8
                 ),
                 position.x()
@@ -640,10 +821,13 @@ public final class CraftScopeProcessDiagramRenderer {
     private static void drawConnection(
             GuiGraphics graphics,
             NodePosition from,
-            NodePosition to
+            NodePosition to,
+            boolean highlighted
     ) {
         int color =
-                CraftScopeUiTheme.TEXT_SECONDARY;
+                highlighted
+                        ? CraftScopeUiTheme.ACCENT_HOVER
+                        : CraftScopeUiTheme.TEXT_SECONDARY;
 
         int fromCenterX =
                 from.x()
@@ -661,9 +845,6 @@ public final class CraftScopeProcessDiagramRenderer {
                 to.y()
                         + to.height() / 2;
 
-        /*
-         * Same row: horizontal arrow.
-         */
         if (fromCenterY
                 == toCenterY) {
 
@@ -692,13 +873,6 @@ public final class CraftScopeProcessDiagramRenderer {
             return;
         }
 
-        /*
-         * Serpentine row transition.
-         *
-         * The first node on the next row occupies the same edge
-         * as the last node from the previous row, so the route
-         * can simply drop vertically before continuing.
-         */
         drawDownArrow(
                 graphics,
                 fromCenterX,
@@ -858,7 +1032,8 @@ public final class CraftScopeProcessDiagramRenderer {
     private static ItemStack getResourceStack(
             CraftScopeResourceAmount resource
     ) {
-        if (resource.kind()
+        if (resource == null
+                || resource.kind()
                 != CraftScopeResourceKind.ITEM) {
 
             return ItemStack.EMPTY;
@@ -903,6 +1078,10 @@ public final class CraftScopeProcessDiagramRenderer {
     private static ItemStack getProcessStack(
             CraftScopeProductionStep step
     ) {
+        if (step == null) {
+            return ItemStack.EMPTY;
+        }
+
         ResourceLocation machineId =
                 findPrimaryMachineId(
                         step
@@ -920,12 +1099,6 @@ public final class CraftScopeProcessDiagramRenderer {
             }
         }
 
-        /*
-         * Some production methods do not declare a machine.
-         *
-         * Vanilla Crafting is the obvious example. Give those
-         * common processes a useful visual fallback.
-         */
         if (!step.methods().isEmpty()) {
 
             ResourceLocation processId =
@@ -1182,12 +1355,6 @@ public final class CraftScopeProcessDiagramRenderer {
         return "";
     }
 
-    /*
-     * Render an item larger than the normal 16x16 GUI item.
-     *
-     * Minecraft's item texture remains the original item/block
-     * texture; this only changes its GUI scale.
-     */
     private static void renderLargeItem(
             GuiGraphics graphics,
             ItemStack stack,
@@ -1319,6 +1486,45 @@ public final class CraftScopeProcessDiagramRenderer {
                 * right;
     }
 
+    /*
+     * ---------------------------------------------------------
+     * Public selection model
+     * ---------------------------------------------------------
+     */
+
+    public enum SelectionKind {
+
+        RESOURCE,
+
+        PROCESS
+    }
+
+    public record Selection(
+            int nodeIndex,
+            SelectionKind kind,
+            CraftScopeResourceAmount resource,
+            CraftScopeProductionStep step,
+            long amount,
+            int extraCount
+    ) {
+
+        public boolean isResource() {
+            return kind
+                    == SelectionKind.RESOURCE;
+        }
+
+        public boolean isProcess() {
+            return kind
+                    == SelectionKind.PROCESS;
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Internal models
+     * ---------------------------------------------------------
+     */
+
     private enum DiagramNodeKind {
 
         RESOURCE,
@@ -1359,6 +1565,21 @@ public final class CraftScopeProcessDiagramRenderer {
                     0
             );
         }
+
+        private Selection toSelection(
+                int nodeIndex
+        ) {
+            return new Selection(
+                    nodeIndex,
+                    kind == DiagramNodeKind.RESOURCE
+                            ? SelectionKind.RESOURCE
+                            : SelectionKind.PROCESS,
+                    resource,
+                    step,
+                    amount,
+                    extraCount
+            );
+        }
     }
 
     private record NodePosition(
@@ -1375,5 +1596,11 @@ public final class CraftScopeProcessDiagramRenderer {
         private int bottom() {
             return y + height;
         }
+    }
+
+    private record DiagramLayout(
+            List<DiagramNode> nodes,
+            List<NodePosition> positions
+    ) {
     }
 }
