@@ -1,6 +1,7 @@
 package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.client.CraftScopeTargetItemReceiver;
+import io.github.gatiger.craftscope.integration.CraftScopeRecipeViewer;
 import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
 import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
 import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
@@ -2779,6 +2780,19 @@ public class CraftScopeProjectScreen
                         step
                 );
 
+        boolean hasViewRecipe =
+                selectedMethod != null
+                        && selectedMethod.hasRecipes();
+
+        /*
+         * Keep the lower part of the panel clear for the
+         * View Recipe button.
+         */
+        int contentBottom =
+                hasViewRecipe
+                        ? bottom - 34
+                        : bottom;
+
         /*
          * Build a temporary step containing only the currently
          * selected method.
@@ -2881,7 +2895,9 @@ public class CraftScopeProjectScreen
              i < step.methods().size();
              i++) {
 
-            if (y + methodRowHeight > bottom - 6) {
+            if (y + methodRowHeight
+                    > contentBottom - 6) {
+
                 break;
             }
 
@@ -2939,7 +2955,7 @@ public class CraftScopeProjectScreen
          * Selected method machine requirements.
          */
         if (selectedMethod != null
-                && y <= bottom - 14) {
+                && y <= contentBottom - 14) {
 
             graphics.drawString(
                     font,
@@ -2967,7 +2983,7 @@ public class CraftScopeProjectScreen
                 foundMachine =
                         true;
 
-                if (y > bottom - 14) {
+                if (y > contentBottom - 14) {
                     break;
                 }
 
@@ -2992,7 +3008,7 @@ public class CraftScopeProjectScreen
             }
 
             if (!foundMachine
-                    && y <= bottom - 14) {
+                    && y <= contentBottom - 14) {
 
                 graphics.drawString(
                         font,
@@ -3010,7 +3026,7 @@ public class CraftScopeProjectScreen
         y +=
                 5;
 
-        if (y <= bottom - 14) {
+        if (y <= contentBottom - 14) {
 
             graphics.drawString(
                     font,
@@ -3025,7 +3041,7 @@ public class CraftScopeProjectScreen
                     14;
         }
 
-        if (y <= bottom - 14) {
+        if (y <= contentBottom - 14) {
 
             graphics.drawString(
                     font,
@@ -3042,7 +3058,7 @@ public class CraftScopeProjectScreen
 
         if (selectedMethod != null
                 && selectedMethod.hasRecipes()
-                && y <= bottom - 14) {
+                && y <= contentBottom - 14) {
 
             graphics.drawString(
                     font,
@@ -3055,6 +3071,86 @@ public class CraftScopeProjectScreen
                     CraftScopeUiTheme.TEXT_SECONDARY
             );
         }
+
+        if (hasViewRecipe) {
+
+            renderViewRecipeButton(
+                    graphics,
+                    selectedMethod,
+                    detailsLeft,
+                    detailsRight,
+                    bottom
+            );
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * View Recipe
+     * ---------------------------------------------------------
+     */
+
+    private void renderViewRecipeButton(
+            GuiGraphics graphics,
+            CraftScopeProductionMethod method,
+            int detailsLeft,
+            int detailsRight,
+            int bottom
+    ) {
+        if (method == null
+                || !method.hasRecipes()) {
+
+            return;
+        }
+
+        int buttonLeft =
+                detailsLeft + 9;
+
+        int buttonRight =
+                detailsRight - 9;
+
+        int buttonTop =
+                bottom - 27;
+
+        int buttonBottom =
+                buttonTop + 18;
+
+        boolean available =
+                CraftScopeRecipeViewer.isAvailable();
+
+        graphics.fill(
+                buttonLeft,
+                buttonTop,
+                buttonRight,
+                buttonBottom,
+                available
+                        ? CraftScopeUiTheme.ACCENT_BACKGROUND
+                        : CraftScopeUiTheme.BUTTON_BACKGROUND
+        );
+
+        CraftScopeUiTheme.drawBorder(
+                graphics,
+                buttonLeft,
+                buttonTop,
+                buttonRight,
+                buttonBottom,
+                available
+                        ? CraftScopeUiTheme.ACCENT
+                        : CraftScopeUiTheme.BORDER
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "View Recipe",
+                (
+                        buttonLeft
+                                + buttonRight
+                ) / 2,
+                buttonTop + 5,
+                available
+                        ? CraftScopeUiTheme.TEXT_PRIMARY
+                        : CraftScopeUiTheme.TEXT_MUTED
+        );
     }
 
     /*
@@ -4128,8 +4224,22 @@ public class CraftScopeProjectScreen
             int button
     ) {
         /*
-         * Method rows have priority over every other Process
-         * Diagram click target.
+         * View Recipe sits inside the Process details panel and
+         * gets first priority.
+         */
+        if (activeView
+                == ViewMode.PROCESS_DIAGRAM
+                && button == 0
+                && handleViewRecipeClick(
+                mouseX,
+                mouseY
+        )) {
+
+            return true;
+        }
+
+        /*
+         * Method rows have priority over diagram and route clicks.
          */
         if (activeView
                 == ViewMode.PROCESS_DIAGRAM
@@ -4180,6 +4290,85 @@ public class CraftScopeProjectScreen
                 mouseY,
                 button
         );
+    }
+
+    private boolean handleViewRecipeClick(
+            double mouseX,
+            double mouseY
+    ) {
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
+        if (route == null) {
+            return false;
+        }
+
+        CraftScopeProcessDiagramRenderer.Selection selection =
+                CraftScopeProcessDiagramRenderer.getSelection(
+                        route,
+                        project.getTargetCount(),
+                        selectedDiagramNodeIndex
+                );
+
+        if (selection == null
+                || !selection.isProcess()
+                || selection.step() == null) {
+
+            return false;
+        }
+
+        CraftScopeProductionMethod selectedMethod =
+                getSelectedMethod(
+                        route,
+                        selection.step()
+                );
+
+        if (selectedMethod == null
+                || !selectedMethod.hasRecipes()) {
+
+            return false;
+        }
+
+        ProcessLayout layout =
+                getProcessLayout();
+
+        int buttonLeft =
+                layout.detailsLeft()
+                        + 9;
+
+        int buttonRight =
+                layout.right()
+                        - 9;
+
+        int buttonTop =
+                layout.mainBottom()
+                        - 27;
+
+        int buttonBottom =
+                buttonTop
+                        + 18;
+
+        if (mouseX < buttonLeft
+                || mouseX >= buttonRight
+                || mouseY < buttonTop
+                || mouseY >= buttonBottom) {
+
+            return false;
+        }
+
+        /*
+         * Consume the click even when no viewer is available.
+         * The button will be drawn in its disabled state.
+         */
+        if (CraftScopeRecipeViewer.isAvailable()) {
+
+            CraftScopeRecipeViewer.openRecipe(
+                    selectedMethod.processId(),
+                    selectedMethod.recipeIds()
+            );
+        }
+
+        return true;
     }
 
     private boolean handleProcessMethodClick(
