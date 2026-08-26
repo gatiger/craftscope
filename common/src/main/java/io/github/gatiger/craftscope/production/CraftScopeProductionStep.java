@@ -1,47 +1,37 @@
 package io.github.gatiger.craftscope.production;
 
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 
 import java.util.List;
 import java.util.Objects;
 
 /*
- * One operation in a production route.
+ * One material transformation inside a production route.
  *
- * Vanilla example:
+ * Example:
  *
- * Iron Ore
- *     ↓
- * Smelting
- *     ↓
+ * Any Iron Ore
+ *      ↓
  * Iron Ingot
  *
- * Create example:
+ * The transformation itself is the step.
  *
- * Cobblestone
- *     ↓
- * Crushing
- *     ↓
- * Gravel
+ * HOW that transformation can be performed is represented by
+ * CraftScopeProductionMethod.
  *
- * Mekanism example:
+ * That lets one step support:
  *
- * Iron Ore + Sulfuric Acid
- *     ↓
- * Chemical Dissolution
- *     ↓
- * Dirty Iron Slurry
+ *   Smelting
+ *   Blasting
+ *
+ * without treating them as different material routes.
  */
 public record CraftScopeProductionStep(
         String id,
-        String sourceModId,
-        ResourceLocation processId,
         Component displayName,
-        ResourceLocation recipeId,
         List<CraftScopeResourceAmount> inputs,
         List<CraftScopeResourceAmount> outputs,
-        List<CraftScopeProcessRequirement> requirements
+        List<CraftScopeProductionMethod> methods
 ) {
 
     public CraftScopeProductionStep {
@@ -51,55 +41,68 @@ public record CraftScopeProductionStep(
         );
 
         Objects.requireNonNull(
-                sourceModId,
-                "sourceModId"
-        );
-
-        Objects.requireNonNull(
-                processId,
-                "processId"
-        );
-
-        Objects.requireNonNull(
                 displayName,
                 "displayName"
         );
 
         inputs =
-                List.copyOf(
-                        inputs
-                );
+                inputs == null
+                        ? List.of()
+                        : List.copyOf(
+                                inputs
+                        );
 
         outputs =
-                List.copyOf(
-                        outputs
-                );
+                outputs == null
+                        ? List.of()
+                        : List.copyOf(
+                                outputs
+                        );
 
-        requirements =
-                List.copyOf(
-                        requirements
-                );
+        methods =
+                methods == null
+                        ? List.of()
+                        : List.copyOf(
+                                methods
+                        );
+
+        if (methods.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Production step must contain at least one method"
+            );
+        }
     }
 
-    /*
-     * recipeId is intentionally optional.
-     *
-     * If present, our JEI/EMI bridge will eventually use it
-     * for the View Recipe button.
-     */
+    public CraftScopeProductionMethod getPrimaryMethod() {
+
+        return methods.getFirst();
+    }
+
+    public boolean hasAlternativeMethods() {
+
+        return methods.size() > 1;
+    }
+
     public boolean hasRecipe() {
 
-        return recipeId != null;
+        for (CraftScopeProductionMethod method :
+                methods) {
+
+            if (method.hasRecipes()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     public boolean hasMachineRequirement() {
 
-        for (CraftScopeProcessRequirement requirement :
-                requirements) {
+        for (CraftScopeProductionMethod method :
+                methods) {
 
-            if (requirement.kind()
-                    == CraftScopeRequirementKind.MACHINE) {
-
+            if (method.hasMachineRequirement()) {
                 return true;
             }
         }

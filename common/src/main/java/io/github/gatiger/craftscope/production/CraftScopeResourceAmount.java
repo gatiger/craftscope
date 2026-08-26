@@ -5,6 +5,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 /*
@@ -13,14 +15,22 @@ import java.util.Objects;
  * Examples:
  *
  * Iron Ore x1
+ * Any Iron Ore x1
  * Water 1000 mB
  * Sulfuric Acid 100 mB
  *
- * "consumed" lets us distinguish normal materials from things
- * such as reusable catalysts.
+ * acceptedVariantIds lets one logical resource represent
+ * equivalent choices such as:
  *
- * "chance" supports recipes with probabilistic outputs without
- * pretending those outputs are guaranteed.
+ * Iron Ore
+ * Deepslate Iron Ore
+ *
+ * or:
+ *
+ * Oak Planks
+ * Spruce Planks
+ * Birch Planks
+ * ...
  */
 public record CraftScopeResourceAmount(
         CraftScopeResourceKind kind,
@@ -29,7 +39,8 @@ public record CraftScopeResourceAmount(
         long amount,
         String unit,
         boolean consumed,
-        double chance
+        double chance,
+        List<ResourceLocation> acceptedVariantIds
 ) {
 
     public CraftScopeResourceAmount {
@@ -66,6 +77,22 @@ public record CraftScopeResourceAmount(
             throw new IllegalArgumentException(
                     "Chance must be between 0.0 and 1.0"
             );
+        }
+
+        if (acceptedVariantIds == null
+                || acceptedVariantIds.isEmpty()) {
+
+            acceptedVariantIds =
+                    List.of(
+                            id
+                    );
+
+        } else {
+
+            acceptedVariantIds =
+                    List.copyOf(
+                            acceptedVariantIds
+                    );
         }
     }
 
@@ -105,7 +132,95 @@ public record CraftScopeResourceAmount(
                 amount,
                 "",
                 consumed,
-                1.0
+                1.0,
+                List.of(
+                        id
+                )
+        );
+    }
+
+    public static CraftScopeResourceAmount itemVariants(
+            List<ItemStack> variants,
+            long amount
+    ) {
+        return itemVariants(
+                variants,
+                amount,
+                true
+        );
+    }
+
+    public static CraftScopeResourceAmount itemVariants(
+            List<ItemStack> variants,
+            long amount,
+            boolean consumed
+    ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Item variants cannot be empty"
+            );
+        }
+
+        ItemStack representative =
+                null;
+
+        List<ResourceLocation> ids =
+                new ArrayList<>();
+
+        for (ItemStack stack :
+                variants) {
+
+            if (stack == null
+                    || stack.isEmpty()) {
+
+                continue;
+            }
+
+            ResourceLocation id =
+                    BuiltInRegistries.ITEM.getKey(
+                            stack.getItem()
+                    );
+
+            if (representative == null) {
+
+                representative =
+                        stack;
+            }
+
+            if (!ids.contains(id)) {
+
+                ids.add(
+                        id
+                );
+            }
+        }
+
+        if (representative == null
+                || ids.isEmpty()) {
+
+            throw new IllegalArgumentException(
+                    "Item variants contained no usable items"
+            );
+        }
+
+        ResourceLocation representativeId =
+                BuiltInRegistries.ITEM.getKey(
+                        representative.getItem()
+                );
+
+        return new CraftScopeResourceAmount(
+                CraftScopeResourceKind.ITEM,
+                representativeId,
+                representative
+                        .getHoverName()
+                        .copy(),
+                amount,
+                "",
+                consumed,
+                1.0,
+                ids
         );
     }
 
@@ -117,5 +232,18 @@ public record CraftScopeResourceAmount(
     public boolean hasUnit() {
 
         return !unit.isBlank();
+    }
+
+    public boolean hasVariants() {
+
+        return acceptedVariantIds.size() > 1;
+    }
+
+    public boolean accepts(
+            ResourceLocation resourceId
+    ) {
+        return acceptedVariantIds.contains(
+                resourceId
+        );
     }
 }
