@@ -263,10 +263,6 @@ public final class CraftScopeProductionRouteNormalizer {
     private static CraftScopeProductionRoute mergeGroup(
             List<CraftScopeProductionRoute> group
     ) {
-        if (group.size() == 1) {
-
-            return group.getFirst();
-        }
 
         CraftScopeProductionRoute representative =
                 group.stream()

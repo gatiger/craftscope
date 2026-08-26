@@ -24,6 +24,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -2379,146 +2380,65 @@ public class CraftScopeProjectScreen
     }
 
     private void renderSelectedProductionRoute(
-            GuiGraphics graphics,
-            int centerLeft,
-            int centerRight,
-            int detailsLeft,
-            int detailsRight,
-            int top,
-            int bottom
-    ) {
+                GuiGraphics graphics,
+                int centerLeft,
+                int centerRight,
+                int detailsLeft,
+                int detailsRight,
+                int top,
+                int bottom
+        ) {
         CraftScopeProductionRoute route =
                 getSelectedProductionRoute();
 
         if (route == null) {
 
-            graphics.drawCenteredString(
-                    font,
-                    "Select a production route.",
-                    centerLeft
-                            + (
-                            centerRight
-                                    - centerLeft
-                    ) / 2,
-                    top + 45,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
-
-            graphics.drawCenteredString(
-                    font,
-                    "No route selected",
-                    detailsLeft
-                            + (
-                            detailsRight
-                                    - detailsLeft
-                    ) / 2,
-                    top + 45,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
-
-            return;
-        }
-
-        int centerX =
-                centerLeft
-                        + (
-                        centerRight
-                                - centerLeft
-                ) / 2;
-
-        String routeLabel =
-                getProductionRouteLabel(
-                        route
+                graphics.drawCenteredString(
+                        font,
+                        "Select a production route.",
+                        centerLeft
+                                + (
+                                centerRight
+                                        - centerLeft
+                        ) / 2,
+                        top + 45,
+                        CraftScopeUiTheme.TEXT_MUTED
                 );
 
-        graphics.drawCenteredString(
-                font,
-                fitText(
-                        routeLabel,
-                        centerRight
-                                - centerLeft
-                                - 20
-                ),
-                centerX,
-                top + 36,
-                CraftScopeUiTheme.SUCCESS
-        );
+                graphics.drawCenteredString(
+                        font,
+                        "No route selected",
+                        detailsLeft
+                                + (
+                                detailsRight
+                                        - detailsLeft
+                        ) / 2,
+                        top + 45,
+                        CraftScopeUiTheme.TEXT_MUTED
+                );
 
-        String stepText =
-                route.getStepCount()
-                        == 1
-                        ? "1 production step"
-                        : route.getStepCount()
-                        + " production steps";
-
-        graphics.drawCenteredString(
-                font,
-                stepText,
-                centerX,
-                top + 53,
-                CraftScopeUiTheme.TEXT_SECONDARY
-        );
-
-        /*
-         * Give multi-step providers some immediately useful
-         * visual feedback even before graph nodes are added.
-         */
-        int stepY =
-                top + 78;
-
-        int maxStepY =
-                bottom - 22;
-
-        for (int i = 0;
-             i < route.steps().size();
-             i++) {
-
-            if (stepY > maxStepY) {
-                break;
-            }
-
-            CraftScopeProductionStep step =
-                    route.steps().get(
-                            i
-                    );
-
-            String display =
-                    (i + 1)
-                            + ". "
-                            + step.displayName()
-                            .getString();
-
-            graphics.drawCenteredString(
-                    font,
-                    fitText(
-                            display,
-                            centerRight
-                                    - centerLeft
-                                    - 24
-                    ),
-                    centerX,
-                    stepY,
-                    CraftScopeUiTheme.TEXT_SECONDARY
-            );
-
-            stepY +=
-                    17;
-        }
-
-        if (route.steps().isEmpty()) {
-
-            graphics.drawCenteredString(
-                    font,
-                    "No route steps available.",
-                    centerX,
-                    top + 78,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
+                return;
         }
 
         /*
-         * Right-side route details.
-         */
+        * Real visual route diagram.
+        */
+        CraftScopeProcessDiagramRenderer.render(
+                graphics,
+                font,
+                route,
+                centerLeft + 6,
+                top + 25,
+                centerRight - 6,
+                bottom - 6,
+                project.getTargetCount()
+        );
+
+        /*
+        * ---------------------------------------------------------
+        * Right-side route details
+        * ---------------------------------------------------------
+        */
 
         int textX =
                 detailsLeft + 9;
@@ -2596,26 +2516,26 @@ public class CraftScopeProjectScreen
 
         if (!route.steps().isEmpty()) {
 
-            CraftScopeProductionStep firstStep =
-                    route.steps()
-                            .getFirst();
+                CraftScopeProductionStep firstStep =
+                        route.steps()
+                                .getFirst();
 
-            graphics.drawString(
-                    font,
-                    "Methods",
-                    textX,
-                    y,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
+                graphics.drawString(
+                        font,
+                        "Methods",
+                        textX,
+                        y,
+                        CraftScopeUiTheme.TEXT_MUTED
+                );
 
-            y +=
-                    14;
+                y +=
+                        14;
 
-            for (CraftScopeProductionMethod method :
-                    firstStep.methods()) {
+                for (CraftScopeProductionMethod method :
+                        firstStep.methods()) {
 
                 if (y > bottom - 14) {
-                    break;
+                        break;
                 }
 
                 String methodName =
@@ -2639,9 +2559,9 @@ public class CraftScopeProjectScreen
 
                 y +=
                         14;
-            }
+                }
         }
-    }
+        }
 
     private CraftScopeProductionRoute getSelectedProductionRoute() {
         if (selectedProductionRouteIndex < 0
