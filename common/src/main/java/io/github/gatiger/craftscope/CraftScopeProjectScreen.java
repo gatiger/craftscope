@@ -246,9 +246,9 @@ public class CraftScopeProjectScreen
                 new EditBox(
                         font,
                         quantityBoxX + 4,
-                        controlY + 2,
+                        controlY + 5,
                         34,
-                        14,
+                        9,
                         Component.literal(
                                 "Quantity"
                         )
@@ -1196,8 +1196,13 @@ public class CraftScopeProjectScreen
                 CraftScopeUiTheme.BORDER
         );
 
-        int quantityLabelX =
+        int minusX =
                 quantityBoxX
+                        - 3
+                        - 20;
+
+        int quantityLabelX =
+                minusX
                         - 8
                         - font.width(
                         "Quantity"

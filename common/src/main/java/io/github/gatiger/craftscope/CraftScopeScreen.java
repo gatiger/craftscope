@@ -32,8 +32,9 @@ public class CraftScopeScreen
         int centerX =
                 craftscope$getStandardCenterX();
 
-        int top =
-                craftscope$getStandardWindowTop();
+        int panelTop =
+                craftscope$getStandardWindowTop()
+                        + 72;
 
         int buttonWidth =
                 190;
@@ -44,8 +45,13 @@ public class CraftScopeScreen
         int gap =
                 8;
 
+        /*
+         * Leave a dedicated area for the introductory sentence
+         * instead of allowing it to collide with Projects.
+         */
         int startY =
-                top + 88;
+                panelTop
+                        + 42;
 
         addRenderableWidget(
                 new CraftScopeFlatButton(
@@ -139,16 +145,20 @@ public class CraftScopeScreen
         );
 
         int left =
-                craftscope$getStandardWindowLeft() + 16;
+                craftscope$getStandardWindowLeft()
+                        + 16;
 
         int right =
-                craftscope$getStandardWindowRight() - 16;
+                craftscope$getStandardWindowRight()
+                        - 16;
 
         int top =
-                craftscope$getStandardWindowTop() + 72;
+                craftscope$getStandardWindowTop()
+                        + 72;
 
         int bottom =
-                craftscope$getStandardWindowBottom() - 52;
+                craftscope$getStandardWindowBottom()
+                        - 52;
 
         CraftScopeUiTheme.drawPanel(
                 graphics,
@@ -162,7 +172,7 @@ public class CraftScopeScreen
                 font,
                 "Plan complex crafting and production chains.",
                 craftscope$getStandardCenterX(),
-                top + 12,
+                top + 14,
                 CraftScopeUiTheme.TEXT_SECONDARY
         );
 

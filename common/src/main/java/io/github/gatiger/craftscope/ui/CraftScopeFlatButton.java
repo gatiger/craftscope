@@ -1,6 +1,7 @@
 package io.github.gatiger.craftscope.ui;
 
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.AbstractButton;
 import net.minecraft.client.gui.narration.NarrationElementOutput;
@@ -169,21 +170,26 @@ public final class CraftScopeFlatButton
                 border
         );
 
-        int lineHeight =
-                Minecraft
-                        .getInstance()
-                        .font
-                        .lineHeight;
+        Font font =
+                Minecraft.getInstance().font;
 
+        /*
+         * Minecraft's visible glyph body is effectively about
+         * one pixel shorter than Font#lineHeight.
+         *
+         * The +1 gives the text visually equal space above and
+         * below it instead of making it look slightly high.
+         */
         int textY =
                 getY()
                         + (
                         getHeight()
-                                - lineHeight
-                ) / 2;
+                                - font.lineHeight
+                ) / 2
+                        + 1;
 
         graphics.drawCenteredString(
-                Minecraft.getInstance().font,
+                font,
                 getMessage(),
                 getX()
                         + getWidth() / 2,
