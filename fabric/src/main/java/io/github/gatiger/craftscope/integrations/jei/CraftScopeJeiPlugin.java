@@ -12,13 +12,13 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.renderer.Rect2i;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
-import io.github.gatiger.craftscope.Constants;
 
 import java.util.List;
 import java.util.Optional;
 
 @JeiPlugin
-public class CraftScopeJeiPlugin implements IModPlugin {
+public class CraftScopeJeiPlugin
+        implements IModPlugin {
 
     private static final ResourceLocation PLUGIN_ID =
             ResourceLocation.fromNamespaceAndPath(
@@ -36,38 +36,77 @@ public class CraftScopeJeiPlugin implements IModPlugin {
             IGuiHandlerRegistration registration
     ) {
         Constants.LOG.info(
-                "CraftScope JEI plugin: registering GUI handlers");
-        /*
-         * CraftScopeProjectScreen is a normal Screen rather than an
-         * AbstractContainerScreen, so JEI needs to know what region
-         * CraftScope itself occupies.
-         */
+                "CraftScope JEI plugin: registering GUI handlers"
+        );
+
         registration.addGuiScreenHandler(
                 CraftScopeProjectScreen.class,
                 this::getGuiProperties
         );
 
-        /*
-         * Allow an item from JEI's ingredient list to be dragged
-         * onto CraftScope's target-item slot.
-         */
         registration.addGhostIngredientHandler(
                 CraftScopeProjectScreen.class,
                 new CraftScopeGhostIngredientHandler()
         );
     }
 
+    /*
+     * JEI is useful while the player is selecting items and
+     * working with individual recipes.
+     *
+     * It is deliberately hidden on:
+     *
+     * Total Materials
+     * Process Diagram
+     * Setup
+     *
+     * Returning null is the JEI-supported way to tell it not to
+     * draw next to this screen at the moment.
+     */
     private IGuiProperties getGuiProperties(
             CraftScopeProjectScreen screen
     ) {
-        int guiWidth = 120;
-        int guiHeight = 140;
+        if (!screen.craftscope$isRecipeTreeView()) {
+            return null;
+        }
+
+        /*
+         * Temporary bounds until the modern CraftScope window
+         * exposes its exact layout coordinates.
+         *
+         * The redesigned screen will replace these with the real
+         * CraftScope application-window bounds.
+         */
+        int sideReserve =
+                170;
+
+        int margin =
+                8;
 
         int guiLeft =
-                (screen.width - guiWidth) / 2;
+                margin;
 
         int guiTop =
-                (screen.height - guiHeight) / 2;
+                margin;
+
+        final int guiWidth =
+                Math.min(
+                        Math.max(
+                                240,
+                                screen.width
+                                        - sideReserve
+                                        - margin * 2
+                        ),
+                        screen.width
+                                - margin * 2
+                );
+
+        final int guiHeight =
+                Math.max(
+                        120,
+                        screen.height
+                                - margin * 2
+                );
 
         return new IGuiProperties() {
 
@@ -117,19 +156,25 @@ public class CraftScopeJeiPlugin implements IModPlugin {
                 ITypedIngredient<I> ingredient,
                 boolean doStart
         ) {
+            /*
+             * Dragging an item from JEI only makes sense while
+             * JEI itself is visible.
+             */
+            if (!screen.craftscope$isRecipeTreeView()) {
+                return List.of();
+            }
+
             Optional<ItemStack> optionalStack =
                     ingredient.getItemStack();
 
-            /*
-             * CraftScope's target is currently an item target.
-             * Ignore fluids and any other JEI ingredient types.
-             */
             if (optionalStack.isEmpty()) {
                 return List.of();
             }
 
             ItemStack stack =
-                    optionalStack.get().copy();
+                    optionalStack
+                            .get()
+                            .copy();
 
             Rect2i targetArea =
                     new Rect2i(
@@ -148,19 +193,26 @@ public class CraftScopeJeiPlugin implements IModPlugin {
                         }
 
                         @Override
-                        public void accept(I ignored) {
+                        public void accept(
+                                I ignored
+                        ) {
                             screen.craftscope$setTargetItem(
                                     stack.copy()
                             );
                         }
                     };
 
-            return List.of(target);
+            return List.of(
+                    target
+            );
         }
 
         @Override
         public void onComplete() {
-            // CraftScope saves the project when the item is accepted.
+            /*
+             * CraftScope saves the project when the item is
+             * accepted.
+             */
         }
     }
 }

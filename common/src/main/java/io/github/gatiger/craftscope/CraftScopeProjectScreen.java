@@ -2833,6 +2833,11 @@ public class CraftScopeProjectScreen extends Screen
         return TARGET_SLOT_SIZE;
     }
 
+    public boolean craftscope$isRecipeTreeView() {
+        return activeView
+                == ViewMode.RECIPE_TREE;
+        }
+
     @Override
     public void onClose() {
         minecraft.setScreen(

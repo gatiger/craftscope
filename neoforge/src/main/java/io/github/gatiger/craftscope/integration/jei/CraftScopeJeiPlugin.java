@@ -17,7 +17,8 @@ import java.util.List;
 import java.util.Optional;
 
 @JeiPlugin
-public class CraftScopeJeiPlugin implements IModPlugin {
+public class CraftScopeJeiPlugin
+        implements IModPlugin {
 
     private static final ResourceLocation PLUGIN_ID =
             ResourceLocation.fromNamespaceAndPath(
@@ -52,14 +53,40 @@ public class CraftScopeJeiPlugin implements IModPlugin {
     private IGuiProperties getGuiProperties(
             CraftScopeProjectScreen screen
     ) {
-        int guiWidth = 120;
-        int guiHeight = 140;
+        if (!screen.craftscope$isRecipeTreeView()) {
+            return null;
+        }
+
+        int sideReserve =
+                170;
+
+        int margin =
+                8;
 
         int guiLeft =
-                (screen.width - guiWidth) / 2;
+                margin;
 
         int guiTop =
-                (screen.height - guiHeight) / 2;
+                margin;
+
+        final int guiWidth =
+                Math.min(
+                        Math.max(
+                                240,
+                                screen.width
+                                        - sideReserve
+                                        - margin * 2
+                        ),
+                        screen.width
+                                - margin * 2
+                );
+
+        final int guiHeight =
+                Math.max(
+                        120,
+                        screen.height
+                                - margin * 2
+                );
 
         return new IGuiProperties() {
 
@@ -109,6 +136,10 @@ public class CraftScopeJeiPlugin implements IModPlugin {
                 ITypedIngredient<I> ingredient,
                 boolean doStart
         ) {
+            if (!screen.craftscope$isRecipeTreeView()) {
+                return List.of();
+            }
+
             Optional<ItemStack> optionalStack =
                     ingredient.getItemStack();
 
@@ -117,7 +148,9 @@ public class CraftScopeJeiPlugin implements IModPlugin {
             }
 
             ItemStack stack =
-                    optionalStack.get().copy();
+                    optionalStack
+                            .get()
+                            .copy();
 
             Rect2i targetArea =
                     new Rect2i(
@@ -136,19 +169,26 @@ public class CraftScopeJeiPlugin implements IModPlugin {
                         }
 
                         @Override
-                        public void accept(I ignored) {
+                        public void accept(
+                                I ignored
+                        ) {
                             screen.craftscope$setTargetItem(
                                     stack.copy()
                             );
                         }
                     };
 
-            return List.of(target);
+            return List.of(
+                    target
+            );
         }
 
         @Override
         public void onComplete() {
-            // Project is saved when CraftScope accepts the item.
+            /*
+             * CraftScope saves the project when the item is
+             * accepted.
+             */
         }
     }
 }
