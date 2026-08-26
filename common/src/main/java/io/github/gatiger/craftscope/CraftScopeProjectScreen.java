@@ -121,6 +121,19 @@ public class CraftScopeProjectScreen
     private final Map<String, List<ResourceLocation>> recipeChoices =
             new HashMap<>();
 
+    /*
+     * Session-only Process Diagram method selections.
+     *
+     * These will eventually be persisted in the project once
+     * the production-route preference model is finalized.
+     *
+     * Key:
+     *
+     * route-id | step-id
+     */
+    private final Map<String, Integer> selectedMethodIndices =
+            new HashMap<>();
+
     private int targetSlotX;
     private int targetSlotY;
 
@@ -313,7 +326,9 @@ public class CraftScopeProjectScreen
         );
 
         /*
+         * -----------------------------------------------------
          * Tabs
+         * -----------------------------------------------------
          */
 
         int tabX =
@@ -413,7 +428,9 @@ public class CraftScopeProjectScreen
                 );
 
         /*
+         * -----------------------------------------------------
          * Header buttons
+         * -----------------------------------------------------
          */
 
         int headerButtonY =
@@ -965,7 +982,7 @@ public class CraftScopeProjectScreen
 
     /*
      * ---------------------------------------------------------
-     * Main rendering
+     * Rendering
      * ---------------------------------------------------------
      */
 
@@ -1243,12 +1260,6 @@ public class CraftScopeProjectScreen
                 CraftScopeUiTheme.TEXT_MUTED
         );
     }
-
-    /*
-     * ---------------------------------------------------------
-     * Target slot
-     * ---------------------------------------------------------
-     */
 
     private void renderTargetSlot(
             GuiGraphics graphics,
@@ -1889,6 +1900,10 @@ public class CraftScopeProjectScreen
         ProcessLayout layout =
                 getProcessLayout();
 
+        /*
+         * Left column
+         */
+
         drawPanel(
                 graphics,
                 layout.left(),
@@ -2013,7 +2028,7 @@ public class CraftScopeProjectScreen
         );
 
         /*
-         * Right details
+         * Right details panel
          */
 
         drawPanel(
@@ -2369,10 +2384,22 @@ public class CraftScopeProjectScreen
             return;
         }
 
+        /*
+         * Build a display version of the route containing only
+         * the selected method for each production step.
+         *
+         * This changes the machine icon and method label without
+         * modifying the original route.
+         */
+        CraftScopeProductionRoute displayRoute =
+                getDisplayProductionRoute(
+                        route
+                );
+
         CraftScopeProcessDiagramRenderer.render(
                 graphics,
                 font,
-                route,
+                displayRoute,
                 centerLeft + 6,
                 top + 25,
                 centerRight - 6,
@@ -2381,6 +2408,10 @@ public class CraftScopeProjectScreen
                 selectedDiagramNodeIndex
         );
 
+        /*
+         * Selection still comes from the original route so the
+         * right panel can see every available method.
+         */
         CraftScopeProcessDiagramRenderer.Selection selection =
                 CraftScopeProcessDiagramRenderer.getSelection(
                         route,
@@ -2710,6 +2741,12 @@ public class CraftScopeProjectScreen
         }
     }
 
+    /*
+     * ---------------------------------------------------------
+     * Selected production process
+     * ---------------------------------------------------------
+     */
+
     private void renderProcessSelectionDetails(
             GuiGraphics graphics,
             CraftScopeProcessDiagramRenderer.Selection selection,
@@ -2718,8 +2755,17 @@ public class CraftScopeProjectScreen
             int top,
             int bottom
     ) {
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
         CraftScopeProductionStep step =
                 selection.step();
+
+        if (route == null
+                || step == null) {
+
+            return;
+        }
 
         int centerX =
                 (
@@ -2727,10 +2773,50 @@ public class CraftScopeProjectScreen
                                 + detailsRight
                 ) / 2;
 
+        CraftScopeProductionMethod selectedMethod =
+                getSelectedMethod(
+                        route,
+                        step
+                );
+
+        /*
+         * Build a temporary step containing only the currently
+         * selected method.
+         *
+         * The renderer helper can then return the correct
+         * machine icon for that method.
+         */
+        CraftScopeProductionStep displayStep =
+                step;
+
+        if (selectedMethod != null) {
+
+            displayStep =
+                    new CraftScopeProductionStep(
+                            step.id(),
+                            step.displayName(),
+                            step.inputs(),
+                            step.outputs(),
+                            List.of(
+                                    selectedMethod
+                            )
+                    );
+        }
+
+        CraftScopeProcessDiagramRenderer.Selection displaySelection =
+                new CraftScopeProcessDiagramRenderer.Selection(
+                        selection.nodeIndex(),
+                        selection.kind(),
+                        selection.resource(),
+                        displayStep,
+                        selection.amount(),
+                        selection.extraCount()
+                );
+
         ItemStack displayStack =
                 CraftScopeProcessDiagramRenderer
                         .getSelectionDisplayStack(
-                                selection
+                                displaySelection
                         );
 
         if (!displayStack.isEmpty()) {
@@ -2760,12 +2846,17 @@ public class CraftScopeProjectScreen
         int textX =
                 detailsLeft + 9;
 
+        int methodWidth =
+                detailsRight
+                        - detailsLeft
+                        - 18;
+
         int y =
                 top + 88;
 
         graphics.drawString(
                 font,
-                "Methods",
+                "Method",
                 textX,
                 y,
                 CraftScopeUiTheme.TEXT_MUTED
@@ -2774,41 +2865,85 @@ public class CraftScopeProjectScreen
         y +=
                 14;
 
-        for (CraftScopeProductionMethod method :
-                step.methods()) {
+        int methodRowHeight =
+                18;
 
-            if (y > bottom - 14) {
+        int selectedMethodIndex =
+                getSelectedMethodIndex(
+                        route,
+                        step
+                );
+
+        /*
+         * Each method is rendered as a selectable row.
+         */
+        for (int i = 0;
+             i < step.methods().size();
+             i++) {
+
+            if (y + methodRowHeight > bottom - 6) {
                 break;
+            }
+
+            CraftScopeProductionMethod method =
+                    step.methods()
+                            .get(i);
+
+            boolean selected =
+                    i
+                            == selectedMethodIndex;
+
+            if (selected) {
+
+                graphics.fill(
+                        textX,
+                        y,
+                        textX + methodWidth,
+                        y + methodRowHeight,
+                        CraftScopeUiTheme.ACCENT_BACKGROUND
+                );
+
+                CraftScopeUiTheme.drawBorder(
+                        graphics,
+                        textX,
+                        y,
+                        textX + methodWidth,
+                        y + methodRowHeight,
+                        CraftScopeUiTheme.ACCENT
+                );
             }
 
             graphics.drawString(
                     font,
                     fitText(
-                            "• "
-                                    + method
-                                    .displayName()
+                            method.displayName()
                                     .getString(),
-                            detailsRight
-                                    - textX
-                                    - 8
+                            methodWidth - 12
                     ),
-                    textX,
-                    y,
-                    CraftScopeUiTheme.TEXT_SECONDARY
+                    textX + 6,
+                    y + 5,
+                    selected
+                            ? CraftScopeUiTheme.TEXT_PRIMARY
+                            : CraftScopeUiTheme.TEXT_SECONDARY
             );
 
             y +=
-                    14;
+                    methodRowHeight
+                            + 3;
         }
 
         y +=
-                5;
+                4;
 
-        if (y <= bottom - 14) {
+        /*
+         * Selected method machine requirements.
+         */
+        if (selectedMethod != null
+                && y <= bottom - 14) {
 
             graphics.drawString(
                     font,
-                    "Machines",
+                    "Machine",
                     textX,
                     y,
                     CraftScopeUiTheme.TEXT_MUTED
@@ -2820,55 +2955,40 @@ public class CraftScopeProjectScreen
             boolean foundMachine =
                     false;
 
-            Set<ResourceLocation> shownMachineIds =
-                    new HashSet<>();
+            for (CraftScopeProcessRequirement requirement :
+                    selectedMethod.requirements()) {
 
-            for (CraftScopeProductionMethod method :
-                    step.methods()) {
+                if (requirement.kind()
+                        != CraftScopeRequirementKind.MACHINE) {
 
-                for (CraftScopeProcessRequirement requirement :
-                        method.requirements()) {
-
-                    if (requirement.kind()
-                            != CraftScopeRequirementKind.MACHINE) {
-
-                        continue;
-                    }
-
-                    if (requirement.id() != null
-                            && !shownMachineIds.add(
-                            requirement.id()
-                    )) {
-
-                        continue;
-                    }
-
-                    foundMachine =
-                            true;
-
-                    if (y > bottom - 14) {
-                        break;
-                    }
-
-                    graphics.drawString(
-                            font,
-                            fitText(
-                                    "• "
-                                            + requirement
-                                            .displayName()
-                                            .getString(),
-                                    detailsRight
-                                            - textX
-                                            - 8
-                            ),
-                            textX,
-                            y,
-                            CraftScopeUiTheme.TEXT_SECONDARY
-                    );
-
-                    y +=
-                            14;
+                    continue;
                 }
+
+                foundMachine =
+                        true;
+
+                if (y > bottom - 14) {
+                    break;
+                }
+
+                graphics.drawString(
+                        font,
+                        fitText(
+                                "• "
+                                        + requirement
+                                        .displayName()
+                                        .getString(),
+                                detailsRight
+                                        - textX
+                                        - 8
+                        ),
+                        textX,
+                        y,
+                        CraftScopeUiTheme.TEXT_SECONDARY
+                );
+
+                y +=
+                        14;
             }
 
             if (!foundMachine
@@ -2915,7 +3035,173 @@ public class CraftScopeProjectScreen
                     y,
                     CraftScopeUiTheme.TEXT_SECONDARY
             );
+
+            y +=
+                    14;
         }
+
+        if (selectedMethod != null
+                && selectedMethod.hasRecipes()
+                && y <= bottom - 14) {
+
+            graphics.drawString(
+                    font,
+                    "Recipes: "
+                            + selectedMethod
+                            .recipeIds()
+                            .size(),
+                    textX,
+                    y,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Production method selection
+     * ---------------------------------------------------------
+     */
+
+    private String getMethodSelectionKey(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionStep step
+    ) {
+        return route.id()
+                + "|"
+                + step.id();
+    }
+
+    private int getSelectedMethodIndex(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionStep step
+    ) {
+        if (step.methods().isEmpty()) {
+            return -1;
+        }
+
+        String key =
+                getMethodSelectionKey(
+                        route,
+                        step
+                );
+
+        int selected =
+                selectedMethodIndices.getOrDefault(
+                        key,
+                        0
+                );
+
+        if (selected < 0
+                || selected >= step.methods().size()) {
+
+            selected =
+                    0;
+        }
+
+        return selected;
+    }
+
+    private CraftScopeProductionMethod getSelectedMethod(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionStep step
+    ) {
+        int index =
+                getSelectedMethodIndex(
+                        route,
+                        step
+                );
+
+        if (index < 0) {
+            return null;
+        }
+
+        return step.methods()
+                .get(index);
+    }
+
+    private void selectMethod(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionStep step,
+            int methodIndex
+    ) {
+        if (methodIndex < 0
+                || methodIndex >= step.methods().size()) {
+
+            return;
+        }
+
+        selectedMethodIndices.put(
+                getMethodSelectionKey(
+                        route,
+                        step
+                ),
+                methodIndex
+        );
+    }
+
+    /*
+     * Build a temporary route containing only the selected method
+     * for each process step.
+     *
+     * This lets the existing diagram renderer automatically
+     * change the displayed machine and method label.
+     */
+    private CraftScopeProductionRoute getDisplayProductionRoute(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null) {
+            return null;
+        }
+
+        List<CraftScopeProductionStep> displaySteps =
+                new ArrayList<>();
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            if (step.methods().isEmpty()) {
+
+                displaySteps.add(
+                        step
+                );
+
+                continue;
+            }
+
+            CraftScopeProductionMethod selectedMethod =
+                    getSelectedMethod(
+                            route,
+                            step
+                    );
+
+            List<CraftScopeProductionMethod> displayMethods =
+                    selectedMethod == null
+                            ? step.methods()
+                            : List.of(
+                            selectedMethod
+                    );
+
+            displaySteps.add(
+                    new CraftScopeProductionStep(
+                            step.id(),
+                            step.displayName(),
+                            step.inputs(),
+                            step.outputs(),
+                            displayMethods
+                    )
+            );
+        }
+
+        return new CraftScopeProductionRoute(
+                route.id(),
+                route.sourceModId(),
+                route.sourceModName(),
+                route.displayName(),
+                route.targetOutput(),
+                displaySteps,
+                route.priority()
+        );
     }
 
     private String formatResourceKind(
@@ -3841,6 +4127,21 @@ public class CraftScopeProjectScreen
             double mouseY,
             int button
     ) {
+        /*
+         * Method rows have priority over every other Process
+         * Diagram click target.
+         */
+        if (activeView
+                == ViewMode.PROCESS_DIAGRAM
+                && button == 0
+                && handleProcessMethodClick(
+                mouseX,
+                mouseY
+        )) {
+
+            return true;
+        }
+
         if (activeView
                 == ViewMode.PROCESS_DIAGRAM
                 && button == 0
@@ -3881,6 +4182,89 @@ public class CraftScopeProjectScreen
         );
     }
 
+    private boolean handleProcessMethodClick(
+            double mouseX,
+            double mouseY
+    ) {
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
+        if (route == null) {
+            return false;
+        }
+
+        CraftScopeProcessDiagramRenderer.Selection selection =
+                CraftScopeProcessDiagramRenderer.getSelection(
+                        route,
+                        project.getTargetCount(),
+                        selectedDiagramNodeIndex
+                );
+
+        if (selection == null
+                || !selection.isProcess()
+                || selection.step() == null) {
+
+            return false;
+        }
+
+        CraftScopeProductionStep step =
+                selection.step();
+
+        /*
+         * Nothing to choose when only one method exists.
+         */
+        if (step.methods().size() <= 1) {
+            return false;
+        }
+
+        ProcessLayout layout =
+                getProcessLayout();
+
+        int left =
+                layout.detailsLeft()
+                        + 9;
+
+        int right =
+                layout.right()
+                        - 9;
+
+        /*
+         * These coordinates intentionally match
+         * renderProcessSelectionDetails().
+         */
+        int rowY =
+                layout.top()
+                        + 102;
+
+        int rowHeight =
+                18;
+
+        for (int i = 0;
+             i < step.methods().size();
+             i++) {
+
+            if (mouseX >= left
+                    && mouseX < right
+                    && mouseY >= rowY
+                    && mouseY < rowY + rowHeight) {
+
+                selectMethod(
+                        route,
+                        step,
+                        i
+                );
+
+                return true;
+            }
+
+            rowY +=
+                    rowHeight
+                            + 3;
+        }
+
+        return false;
+    }
+
     private boolean handleProcessDiagramNodeClick(
             double mouseX,
             double mouseY
@@ -3895,6 +4279,10 @@ public class CraftScopeProjectScreen
         ProcessLayout layout =
                 getProcessLayout();
 
+        /*
+         * Geometry is identical between the original route and
+         * the display route, so hit testing can use the original.
+         */
         CraftScopeProcessDiagramRenderer.Selection selection =
                 CraftScopeProcessDiagramRenderer.hitTest(
                         route,
@@ -4500,6 +4888,12 @@ public class CraftScopeProjectScreen
         expandedNodes.clear();
         recipeOverrides.clear();
         recipeChoices.clear();
+
+        /*
+         * Production method choices belong to the old target,
+         * so remove them when a new target is selected.
+         */
+        selectedMethodIndices.clear();
 
         selectedProductionRouteIndex =
                 -1;
