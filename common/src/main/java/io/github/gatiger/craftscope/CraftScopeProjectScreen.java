@@ -35,6 +35,7 @@ import net.minecraft.world.item.ItemStack;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -626,7 +627,7 @@ public class CraftScopeProjectScreen
                     renderProcessDiagram(graphics);
 
             case SETUP ->
-                    renderSetupPlaceholder(graphics);
+                    renderSetup(graphics);
         }
 
         super.render(graphics, mouseX, mouseY, partialTick);
@@ -1845,32 +1846,6 @@ public class CraftScopeProjectScreen
         CraftScopeResourceAmount resource =
                 selection.resource();
 
-        CraftScopeProductionRoute route =
-                getSelectedProductionRoute();
-
-        /*
-         * Resource nodes that are outputs of a process can open
-         * the exact recipe for the process that produced them.
-         *
-         * The initial input resource has no producing step inside
-         * the selected route, so it intentionally does not get a
-         * View Recipe button.
-         */
-        CraftScopeProductionMethod recipeMethod =
-                getRecipeMethodForSelection(
-                        route,
-                        selection
-                );
-
-        boolean hasViewRecipe =
-                recipeMethod != null
-                        && recipeMethod.hasRecipes();
-
-        int contentBottom =
-                hasViewRecipe
-                        ? bottom - 34
-                        : bottom;
-
         int centerX =
                 (detailsLeft + detailsRight) / 2;
 
@@ -1966,7 +1941,7 @@ public class CraftScopeProjectScreen
         y += 18;
 
         if (resource.hasVariants()
-                && y <= contentBottom - 14) {
+                && y <= bottom - 14) {
 
             graphics.drawString(
                     font,
@@ -1986,9 +1961,7 @@ public class CraftScopeProjectScreen
             for (ResourceLocation variant :
                     resource.acceptedVariantIds()) {
 
-                if (shown >= 3
-                        || y > contentBottom - 14) {
-
+                if (shown >= 3 || y > bottom - 14) {
                     break;
                 }
 
@@ -2006,16 +1979,6 @@ public class CraftScopeProjectScreen
                 y += 13;
                 shown++;
             }
-        }
-
-        if (hasViewRecipe) {
-            renderViewRecipeButton(
-                    graphics,
-                    recipeMethod,
-                    detailsLeft,
-                    detailsRight,
-                    bottom
-            );
         }
     }
 
@@ -2333,124 +2296,6 @@ public class CraftScopeProjectScreen
         );
     }
 
-    private CraftScopeProductionMethod getRecipeMethodForSelection(
-            CraftScopeProductionRoute route,
-            CraftScopeProcessDiagramRenderer.Selection selection
-    ) {
-        if (route == null || selection == null) {
-            return null;
-        }
-
-        if (selection.isProcess()) {
-            CraftScopeProductionStep step =
-                    selection.step();
-
-            if (step == null) {
-                return null;
-            }
-
-            return getSelectedMethod(
-                    route,
-                    step
-            );
-        }
-
-        if (!selection.isResource()) {
-            return null;
-        }
-
-        CraftScopeProductionStep producingStep =
-                getProducingStepForResourceNode(
-                        route,
-                        selection.nodeIndex()
-                );
-
-        if (producingStep == null) {
-            return null;
-        }
-
-        return getSelectedMethod(
-                route,
-                producingStep
-        );
-    }
-
-    /*
-     * Reconstruct the renderer's node ordering:
-     *
-     * optional first input
-     * process
-     * output
-     * process
-     * output
-     * ...
-     *
-     * This lets a selected output-resource node resolve back to
-     * the exact production step that created it without changing
-     * the renderer's public Selection record.
-     */
-    private CraftScopeProductionStep getProducingStepForResourceNode(
-            CraftScopeProductionRoute route,
-            int nodeIndex
-    ) {
-        if (route == null
-                || nodeIndex < 0
-                || route.steps().isEmpty()) {
-
-            return null;
-        }
-
-        int currentNodeIndex = 0;
-
-        CraftScopeProductionStep firstStep =
-                route.steps().getFirst();
-
-        if (!firstStep.inputs().isEmpty()) {
-            /*
-             * Node zero is an external/input resource and has no
-             * producer inside this selected route.
-             */
-            if (nodeIndex == currentNodeIndex) {
-                return null;
-            }
-
-            currentNodeIndex++;
-        }
-
-        for (CraftScopeProductionStep step :
-                route.steps()) {
-
-            /*
-             * Process node.
-             */
-            if (nodeIndex == currentNodeIndex) {
-                return null;
-            }
-
-            currentNodeIndex++;
-
-            boolean hasOutputNode =
-                    !step.outputs().isEmpty()
-                            || step
-                            == route.steps().getLast();
-
-            if (!hasOutputNode) {
-                continue;
-            }
-
-            /*
-             * The next node is the output produced by this step.
-             */
-            if (nodeIndex == currentNodeIndex) {
-                return step;
-            }
-
-            currentNodeIndex++;
-        }
-
-        return null;
-    }
-
     private String getMethodSelectionKey(
             CraftScopeProductionRoute route,
             CraftScopeProductionStep step
@@ -2662,28 +2507,112 @@ public class CraftScopeProjectScreen
         return result + ellipsis;
     }
 
-    private void renderSetupPlaceholder(
+    /*
+     * ---------------------------------------------------------
+     * Setup
+     * ---------------------------------------------------------
+     */
+
+    private void renderSetup(
             GuiGraphics graphics
     ) {
-        int left = getContentLeft();
-        int right = getContentRight();
-        int top = CONTENT_TITLE_Y - 4;
+        int left =
+                getContentLeft();
 
-        int summaryHeight = 74;
+        int right =
+                getContentRight();
+
+        int top =
+                CONTENT_TITLE_Y - 4;
+
+        int summaryHeight =
+                74;
 
         int summaryTop =
                 getWindowBottom()
                         - CONTENT_BOTTOM_MARGIN
                         - summaryHeight;
 
-        int bottom = summaryTop - 6;
+        int mainBottom =
+                summaryTop - 6;
+
+        CraftScopeProductionRoute route =
+                getSelectedProductionRoute();
+
+        /*
+         * Keep the Setup page useful even before a route exists.
+         */
+        if (route == null) {
+
+            drawPanel(
+                    graphics,
+                    left,
+                    top,
+                    right,
+                    mainBottom
+            );
+
+            drawSectionTitle(
+                    graphics,
+                    left,
+                    top,
+                    right,
+                    "Setup"
+            );
+
+            graphics.drawCenteredString(
+                    font,
+                    "Select a production route from Process Diagram.",
+                    getContentCenterX(),
+                    top + 46,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            renderProcessSummaryBar(
+                    graphics,
+                    summaryTop,
+                    summaryHeight
+            );
+
+            return;
+        }
+
+        /*
+         * The display route contains only the selected method for
+         * each process step. This keeps Setup synchronized with
+         * Smelting/Blasting and future modded method choices.
+         */
+        CraftScopeProductionRoute displayRoute =
+                getDisplayProductionRoute(
+                        route
+                );
+
+        CraftScopeProductionSummary summary =
+                CraftScopeProductionSummary.summarize(
+                        displayRoute,
+                        project.getTargetCount()
+                );
+
+        List<CraftScopeProcessRequirement> operatingRequirements =
+                getSetupOperatingRequirements(
+                        displayRoute
+                );
+
+        /*
+         * -----------------------------------------------------
+         * Route banner
+         * -----------------------------------------------------
+         */
+
+        int bannerBottom =
+                top + 60;
 
         drawPanel(
                 graphics,
                 left,
                 top,
                 right,
-                bottom
+                bannerBottom
         );
 
         drawSectionTitle(
@@ -2694,50 +2623,644 @@ public class CraftScopeProjectScreen
                 "Setup"
         );
 
-        CraftScopeProductionRoute route =
-                getSelectedProductionRoute();
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        getProductionRouteLabel(
+                                route
+                        ),
+                        right - left - 30
+                ),
+                getContentCenterX(),
+                top + 29,
+                CraftScopeUiTheme.SUCCESS
+        );
 
-        if (route == null) {
-            graphics.drawCenteredString(
-                    font,
-                    "Select a production route from Process Diagram.",
-                    getContentCenterX(),
-                    top + 44,
-                    CraftScopeUiTheme.TEXT_SECONDARY
-            );
-        } else {
-            graphics.drawCenteredString(
-                    font,
-                    fitText(
-                            getProductionRouteLabel(route),
-                            right - left - 30
-                    ),
-                    getContentCenterX(),
-                    top + 44,
-                    CraftScopeUiTheme.SUCCESS
-            );
+        String routeInfo =
+                route.getStepCount()
+                        + (
+                        route.getStepCount() == 1
+                                ? " production step"
+                                : " production steps"
+                )
+                        + "  •  "
+                        + summary.runs()
+                        + (
+                        summary.runs() == 1
+                                ? " run"
+                                : " runs"
+                );
 
-            graphics.drawCenteredString(
-                    font,
-                    "Required machines and supporting infrastructure",
-                    getContentCenterX(),
-                    top + 65,
-                    CraftScopeUiTheme.TEXT_SECONDARY
-            );
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        routeInfo,
+                        right - left - 30
+                ),
+                getContentCenterX(),
+                top + 44,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
 
-            graphics.drawCenteredString(
-                    font,
-                    "will be calculated from this route.",
-                    getContentCenterX(),
-                    top + 82,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
-        }
+        /*
+         * -----------------------------------------------------
+         * Main Setup columns
+         * -----------------------------------------------------
+         */
 
+        int gap =
+                6;
+
+        int panelsTop =
+                bannerBottom + gap;
+
+        int availableWidth =
+                right - left - gap * 2;
+
+        int machinesWidth =
+                availableWidth / 3;
+
+        int requirementsWidth =
+                availableWidth / 3;
+
+        int methodsWidth =
+                availableWidth
+                        - machinesWidth
+                        - requirementsWidth;
+
+        int machinesLeft =
+                left;
+
+        int machinesRight =
+                machinesLeft + machinesWidth;
+
+        int requirementsLeft =
+                machinesRight + gap;
+
+        int requirementsRight =
+                requirementsLeft + requirementsWidth;
+
+        int methodsLeft =
+                requirementsRight + gap;
+
+        int methodsRight =
+                methodsLeft + methodsWidth;
+
+        drawPanel(
+                graphics,
+                machinesLeft,
+                panelsTop,
+                machinesRight,
+                mainBottom
+        );
+
+        drawPanel(
+                graphics,
+                requirementsLeft,
+                panelsTop,
+                requirementsRight,
+                mainBottom
+        );
+
+        drawPanel(
+                graphics,
+                methodsLeft,
+                panelsTop,
+                methodsRight,
+                mainBottom
+        );
+
+        drawSectionTitle(
+                graphics,
+                machinesLeft,
+                panelsTop,
+                machinesRight,
+                "Required Machines"
+        );
+
+        drawSectionTitle(
+                graphics,
+                requirementsLeft,
+                panelsTop,
+                requirementsRight,
+                "Operating Requirements"
+        );
+
+        drawSectionTitle(
+                graphics,
+                methodsLeft,
+                panelsTop,
+                methodsRight,
+                "Selected Methods"
+        );
+
+        renderSetupMachines(
+                graphics,
+                summary.machines(),
+                machinesLeft,
+                machinesRight,
+                panelsTop,
+                mainBottom
+        );
+
+        renderSetupOperatingRequirements(
+                graphics,
+                operatingRequirements,
+                requirementsLeft,
+                requirementsRight,
+                panelsTop,
+                mainBottom
+        );
+
+        renderSetupSelectedMethods(
+                graphics,
+                displayRoute,
+                methodsLeft,
+                methodsRight,
+                panelsTop,
+                mainBottom
+        );
+
+        /*
+         * Keep the Process Diagram and Setup totals identical.
+         */
         renderProcessSummaryBar(
                 graphics,
                 summaryTop,
                 summaryHeight
+        );
+    }
+
+    private void renderSetupMachines(
+            GuiGraphics graphics,
+            List<CraftScopeProcessRequirement> machines,
+            int left,
+            int right,
+            int top,
+            int bottom
+    ) {
+        if (machines == null
+                || machines.isEmpty()) {
+
+            renderSetupEmptyMessage(
+                    graphics,
+                    left,
+                    right,
+                    top,
+                    "No machine required"
+            );
+
+            return;
+        }
+
+        int rowTop =
+                top + 28;
+
+        int rowHeight =
+                20;
+
+        int maxRows =
+                Math.max(
+                        1,
+                        (bottom - rowTop - 6)
+                                / rowHeight
+                );
+
+        int visible =
+                Math.min(
+                        machines.size(),
+                        maxRows
+                );
+
+        for (int i = 0;
+             i < visible;
+             i++) {
+
+            CraftScopeProcessRequirement requirement =
+                    machines.get(i);
+
+            int y =
+                    rowTop
+                            + i * rowHeight;
+
+            ItemStack stack =
+                    getSummaryRequirementStack(
+                            requirement
+                    );
+
+            int iconX =
+                    left + 9;
+
+            int textX =
+                    iconX;
+
+            if (!stack.isEmpty()) {
+
+                graphics.renderItem(
+                        stack,
+                        iconX,
+                        y
+                );
+
+                textX +=
+                        20;
+            }
+
+            String amountText =
+                    formatSummaryRequirementAmount(
+                            requirement
+                    );
+
+            String label =
+                    requirement
+                            .displayName()
+                            .getString();
+
+            if (!amountText.isEmpty()) {
+
+                label +=
+                        " "
+                                + amountText;
+            }
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            label,
+                            right - textX - 9
+                    ),
+                    textX,
+                    y + 4,
+                    CraftScopeUiTheme.TEXT_PRIMARY
+            );
+        }
+
+        renderSetupMoreCount(
+                graphics,
+                machines.size(),
+                visible,
+                right,
+                bottom
+        );
+    }
+
+    private void renderSetupOperatingRequirements(
+            GuiGraphics graphics,
+            List<CraftScopeProcessRequirement> requirements,
+            int left,
+            int right,
+            int top,
+            int bottom
+    ) {
+        if (requirements == null
+                || requirements.isEmpty()) {
+
+            renderSetupEmptyMessage(
+                    graphics,
+                    left,
+                    right,
+                    top,
+                    "No special requirements"
+            );
+
+            return;
+        }
+
+        int rowTop =
+                top + 28;
+
+        int rowHeight =
+                28;
+
+        int maxRows =
+                Math.max(
+                        1,
+                        (bottom - rowTop - 6)
+                                / rowHeight
+                );
+
+        int visible =
+                Math.min(
+                        requirements.size(),
+                        maxRows
+                );
+
+        for (int i = 0;
+             i < visible;
+             i++) {
+
+            CraftScopeProcessRequirement requirement =
+                    requirements.get(i);
+
+            int y =
+                    rowTop
+                            + i * rowHeight;
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            formatSetupRequirementKind(
+                                    requirement.kind()
+                            ),
+                            right - left - 18
+                    ),
+                    left + 9,
+                    y,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            String amount =
+                    formatSummaryRequirementAmount(
+                            requirement
+                    );
+
+            String label =
+                    requirement
+                            .displayName()
+                            .getString();
+
+            if (!amount.isEmpty()) {
+
+                label +=
+                        " "
+                                + amount;
+            }
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            label,
+                            right - left - 18
+                    ),
+                    left + 9,
+                    y + 13,
+                    CraftScopeUiTheme.TEXT_PRIMARY
+            );
+        }
+
+        renderSetupMoreCount(
+                graphics,
+                requirements.size(),
+                visible,
+                right,
+                bottom
+        );
+    }
+
+    private void renderSetupSelectedMethods(
+            GuiGraphics graphics,
+            CraftScopeProductionRoute route,
+            int left,
+            int right,
+            int top,
+            int bottom
+    ) {
+        if (route == null
+                || route.steps().isEmpty()) {
+
+            renderSetupEmptyMessage(
+                    graphics,
+                    left,
+                    right,
+                    top,
+                    "No production steps"
+            );
+
+            return;
+        }
+
+        int rowTop =
+                top + 28;
+
+        int rowHeight =
+                28;
+
+        int maxRows =
+                Math.max(
+                        1,
+                        (bottom - rowTop - 6)
+                                / rowHeight
+                );
+
+        int visible =
+                Math.min(
+                        route.steps().size(),
+                        maxRows
+                );
+
+        for (int i = 0;
+             i < visible;
+             i++) {
+
+            CraftScopeProductionStep step =
+                    route.steps().get(i);
+
+            CraftScopeProductionMethod method =
+                    step.getPrimaryMethod();
+
+            int y =
+                    rowTop
+                            + i * rowHeight;
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            step.displayName()
+                                    .getString(),
+                            right - left - 18
+                    ),
+                    left + 9,
+                    y,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            String methodName =
+                    method == null
+                            ? "No method"
+                            : method
+                            .displayName()
+                            .getString();
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            methodName,
+                            right - left - 18
+                    ),
+                    left + 9,
+                    y + 13,
+                    method == null
+                            ? CraftScopeUiTheme.TEXT_MUTED
+                            : CraftScopeUiTheme.TEXT_PRIMARY
+            );
+        }
+
+        renderSetupMoreCount(
+                graphics,
+                route.steps().size(),
+                visible,
+                right,
+                bottom
+        );
+    }
+
+    private List<CraftScopeProcessRequirement>
+    getSetupOperatingRequirements(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null
+                || route.steps().isEmpty()) {
+
+            return List.of();
+        }
+
+        Map<String, CraftScopeProcessRequirement> requirements =
+                new LinkedHashMap<>();
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            CraftScopeProductionMethod method =
+                    step.getPrimaryMethod();
+
+            if (method == null) {
+                continue;
+            }
+
+            for (CraftScopeProcessRequirement requirement :
+                    method.requirements()) {
+
+                if (requirement.kind()
+                        == CraftScopeRequirementKind.MACHINE) {
+
+                    continue;
+                }
+
+                String key =
+                        buildSetupRequirementKey(
+                                requirement
+                        );
+
+                CraftScopeProcessRequirement existing =
+                        requirements.get(
+                                key
+                        );
+
+                /*
+                 * These requirements are normally capacities or
+                 * conditions, so repeated identical requirements
+                 * use the greatest requirement rather than being
+                 * multiplied by the number of recipe runs.
+                 */
+                if (existing == null
+                        || requirement.amount()
+                        > existing.amount()) {
+
+                    requirements.put(
+                            key,
+                            requirement
+                    );
+                }
+            }
+        }
+
+        return List.copyOf(
+                requirements.values()
+        );
+    }
+
+    private String buildSetupRequirementKey(
+            CraftScopeProcessRequirement requirement
+    ) {
+        String id =
+                requirement.id() == null
+                        ? ""
+                        : requirement
+                        .id()
+                        .toString();
+
+        return requirement.kind()
+                + "|"
+                + id
+                + "|"
+                + requirement
+                .displayName()
+                .getString()
+                + "|"
+                + requirement.unit();
+    }
+
+    private String formatSetupRequirementKind(
+            CraftScopeRequirementKind kind
+    ) {
+        return switch (kind) {
+
+            case MACHINE ->
+                    "Machine";
+
+            case ENERGY ->
+                    "Energy";
+
+            case HEAT ->
+                    "Heat";
+
+            case MECHANICAL_POWER ->
+                    "Mechanical Power";
+
+            case ENVIRONMENT ->
+                    "Environment";
+
+            case TOOL ->
+                    "Tool / Equipment";
+
+            case OTHER ->
+                    "Other";
+        };
+    }
+
+    private void renderSetupEmptyMessage(
+            GuiGraphics graphics,
+            int left,
+            int right,
+            int top,
+            String text
+    ) {
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        text,
+                        right - left - 18
+                ),
+                (left + right) / 2,
+                top + 38,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+    }
+
+    private void renderSetupMoreCount(
+            GuiGraphics graphics,
+            int total,
+            int visible,
+            int right,
+            int bottom
+    ) {
+        if (total <= visible) {
+            return;
+        }
+
+        String text =
+                "+"
+                        + (total - visible)
+                        + " more";
+
+        graphics.drawString(
+                font,
+                text,
+                right
+                        - font.width(text)
+                        - 9,
+                bottom - 12,
+                CraftScopeUiTheme.TEXT_MUTED
         );
     }
 
@@ -3877,25 +4400,21 @@ public class CraftScopeProjectScreen
                         selectedDiagramNodeIndex
                 );
 
-        if (selection == null) {
+        if (selection == null
+                || !selection.isProcess()
+                || selection.step() == null) {
+
             return false;
         }
 
-        /*
-         * Process selections use their selected method directly.
-         *
-         * Output-resource selections use the selected method from
-         * the process step immediately responsible for producing
-         * that resource.
-         */
-        CraftScopeProductionMethod recipeMethod =
-                getRecipeMethodForSelection(
+        CraftScopeProductionMethod selectedMethod =
+                getSelectedMethod(
                         route,
-                        selection
+                        selection.step()
                 );
 
-        if (recipeMethod == null
-                || !recipeMethod.hasRecipes()) {
+        if (selectedMethod == null
+                || !selectedMethod.hasRecipes()) {
 
             return false;
         }
@@ -3925,8 +4444,8 @@ public class CraftScopeProjectScreen
 
         if (CraftScopeRecipeViewer.isAvailable()) {
             CraftScopeRecipeViewer.openRecipe(
-                    recipeMethod.processId(),
-                    recipeMethod.recipeIds()
+                    selectedMethod.processId(),
+                    selectedMethod.recipeIds()
             );
         }
 
