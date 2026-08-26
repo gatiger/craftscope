@@ -2,12 +2,15 @@ package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class CraftScopeDeleteProjectScreen extends Screen {
+public class CraftScopeDeleteProjectScreen
+        extends CraftScopeBaseScreen {
 
     private final Screen parent;
     private final Screen projectsScreen;
@@ -39,42 +42,40 @@ public class CraftScopeDeleteProjectScreen extends Screen {
         super.init();
 
         int centerX =
-                width / 2;
+                craftscope$getStandardCenterX();
+
+        int top =
+                craftscope$getStandardWindowTop();
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal(
-                                        "Cancel"
-                                ),
-                                button ->
-                                        minecraft.setScreen(
-                                                parent
-                                        )
-                        )
-                        .bounds(
-                                centerX - 105,
-                                120,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 104,
+                        top + 160,
+                        98,
+                        24,
+                        Component.literal(
+                                "Cancel"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal(
-                                        "Delete Project"
-                                ),
-                                button ->
-                                        deleteProject()
-                        )
-                        .bounds(
-                                centerX + 5,
-                                120,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX + 6,
+                        top + 160,
+                        98,
+                        24,
+                        Component.literal(
+                                "Delete"
+                        ),
+                        this::deleteProject
+                ).setDanger(
+                        true
+                )
         );
     }
 
@@ -95,35 +96,71 @@ public class CraftScopeDeleteProjectScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
-        super.render(
+        craftscope$renderStandardShell(
                 graphics,
-                mouseX,
-                mouseY,
-                partialTick
+                "Delete Project",
+                ""
+        );
+
+        int left =
+                craftscope$getStandardWindowLeft() + 40;
+
+        int right =
+                craftscope$getStandardWindowRight() - 40;
+
+        int top =
+                craftscope$getStandardWindowTop() + 82;
+
+        int bottom =
+                craftscope$getStandardWindowTop() + 145;
+
+        CraftScopeUiTheme.drawPanel(
+                graphics,
+                left,
+                top,
+                right,
+                bottom,
+                CraftScopeUiTheme.DANGER_BACKGROUND
+        );
+
+        CraftScopeUiTheme.drawBorder(
+                graphics,
+                left,
+                top,
+                right,
+                bottom,
+                CraftScopeUiTheme.DANGER
         );
 
         graphics.drawCenteredString(
                 font,
                 "Delete Project?",
-                width / 2,
-                45,
-                0xFFFFFF
+                craftscope$getStandardCenterX(),
+                top + 12,
+                CraftScopeUiTheme.TEXT_PRIMARY
         );
 
         graphics.drawCenteredString(
                 font,
                 project.getName(),
-                width / 2,
-                68,
-                0xFFAAAA
+                craftscope$getStandardCenterX(),
+                top + 31,
+                0xFFFFAAAA
         );
 
         graphics.drawCenteredString(
                 font,
                 "This cannot be undone.",
-                width / 2,
-                88,
-                0xAAAAAA
+                craftscope$getStandardCenterX(),
+                top + 47,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+
+        super.render(
+                graphics,
+                mouseX,
+                mouseY,
+                partialTick
         );
     }
 

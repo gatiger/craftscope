@@ -51,17 +51,10 @@ public class CraftScopeJeiPlugin
     }
 
     /*
-     * JEI is useful while the player is selecting items and
-     * working with individual recipes.
+     * JEI is displayed only while Recipe Tree is active.
      *
-     * It is deliberately hidden on:
-     *
-     * Total Materials
-     * Process Diagram
-     * Setup
-     *
-     * Returning null is the JEI-supported way to tell it not to
-     * draw next to this screen at the moment.
+     * The other CraftScope tabs reclaim the full width of the
+     * screen.
      */
     private IGuiProperties getGuiProperties(
             CraftScopeProjectScreen screen
@@ -70,42 +63,24 @@ public class CraftScopeJeiPlugin
             return null;
         }
 
-        /*
-         * Temporary bounds until the modern CraftScope window
-         * exposes its exact layout coordinates.
-         *
-         * The redesigned screen will replace these with the real
-         * CraftScope application-window bounds.
-         */
-        int sideReserve =
-                170;
+        final int guiLeft =
+                screen.craftscope$getWindowLeft();
 
-        int margin =
-                8;
-
-        int guiLeft =
-                margin;
-
-        int guiTop =
-                margin;
+        final int guiTop =
+                screen.craftscope$getWindowTop();
 
         final int guiWidth =
-                Math.min(
-                        Math.max(
-                                240,
-                                screen.width
-                                        - sideReserve
-                                        - margin * 2
-                        ),
-                        screen.width
-                                - margin * 2
+                Math.max(
+                        1,
+                        screen.craftscope$getWindowRight()
+                                - guiLeft
                 );
 
         final int guiHeight =
                 Math.max(
-                        120,
-                        screen.height
-                                - margin * 2
+                        1,
+                        screen.craftscope$getWindowBottom()
+                                - guiTop
                 );
 
         return new IGuiProperties() {
@@ -156,10 +131,6 @@ public class CraftScopeJeiPlugin
                 ITypedIngredient<I> ingredient,
                 boolean doStart
         ) {
-            /*
-             * Dragging an item from JEI only makes sense while
-             * JEI itself is visible.
-             */
             if (!screen.craftscope$isRecipeTreeView()) {
                 return List.of();
             }
@@ -210,8 +181,8 @@ public class CraftScopeJeiPlugin
         @Override
         public void onComplete() {
             /*
-             * CraftScope saves the project when the item is
-             * accepted.
+             * CraftScope saves the project when the target item
+             * is accepted.
              */
         }
     }

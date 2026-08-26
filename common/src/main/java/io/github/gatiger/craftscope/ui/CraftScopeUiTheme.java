@@ -3,18 +3,16 @@ package io.github.gatiger.craftscope.ui;
 import net.minecraft.client.gui.GuiGraphics;
 
 /*
- * Central visual theme for CraftScope.
+ * Shared visual language for CraftScope.
  *
- * Keeping colors and panel drawing here means the entire
- * interface can be restyled later without rewriting every
- * individual screen.
+ * The goal is a dark, opaque application-style interface rather
+ * than Minecraft widgets floating directly over the world.
  */
 public final class CraftScopeUiTheme {
 
     /*
-     * Darkens the Minecraft world behind CraftScope.
-     *
-     * The CraftScope window itself is intentionally opaque.
+     * The world remains faintly visible outside the application
+     * window, while the actual CraftScope workspace is opaque.
      */
     public static final int BACKDROP =
             0xB8000000;
@@ -23,13 +21,16 @@ public final class CraftScopeUiTheme {
             0xFF090C0F;
 
     public static final int HEADER_BACKGROUND =
-            0xFF0E1216;
+            0xFF0D1115;
+
+    public static final int TAB_BAR_BACKGROUND =
+            0xFF0B0F12;
 
     public static final int PANEL_BACKGROUND =
             0xFF101519;
 
     public static final int PANEL_BACKGROUND_ALT =
-            0xFF151B20;
+            0xFF141A1F;
 
     public static final int SECTION_HEADER_BACKGROUND =
             0xFF171D22;
@@ -38,14 +39,14 @@ public final class CraftScopeUiTheme {
             0xFF2A3138;
 
     public static final int BORDER_HOVER =
-            0xFF48535D;
+            0xFF46525C;
 
     public static final int BORDER_SUBTLE =
             0xFF20262C;
 
     /*
-     * Accent based on the blue-highlighted tab from the
-     * CraftScope concept image.
+     * Blue accent inspired by the selected Process Diagram tab
+     * in the current CraftScope visual reference.
      */
     public static final int ACCENT =
             0xFF0875AA;
@@ -57,7 +58,7 @@ public final class CraftScopeUiTheme {
             0xFF0A3044;
 
     public static final int BUTTON_BACKGROUND =
-            0xFF1B2025;
+            0xFF1A2025;
 
     public static final int BUTTON_HOVER =
             0xFF252C32;
@@ -82,6 +83,9 @@ public final class CraftScopeUiTheme {
 
     public static final int TEXT_DISABLED =
             0xFF626A71;
+
+    public static final int SUCCESS =
+            0xFF58D84B;
 
     private CraftScopeUiTheme() {
     }
@@ -174,6 +178,11 @@ public final class CraftScopeUiTheme {
             int bottom,
             int background
     ) {
+        if (right <= left
+                || bottom <= top) {
+            return;
+        }
+
         graphics.fill(
                 left,
                 top,
@@ -199,6 +208,11 @@ public final class CraftScopeUiTheme {
             int right,
             int bottom
     ) {
+        if (right <= left
+                || bottom <= top) {
+            return;
+        }
+
         graphics.fill(
                 left,
                 top,
@@ -224,6 +238,11 @@ public final class CraftScopeUiTheme {
             int bottom,
             int color
     ) {
+        if (right <= left
+                || bottom <= top) {
+            return;
+        }
+
         graphics.fill(
                 left,
                 top,
@@ -258,13 +277,11 @@ public final class CraftScopeUiTheme {
     }
 
     /*
-     * Temporary logo mark.
+     * Temporary CraftScope logo placeholder.
      *
-     * This reserves the correct header space without locking us
-     * into a real logo design yet.
-     *
-     * When CraftScope gets an actual logo, this method can be
-     * replaced by a texture render without changing the layout.
+     * This deliberately stays simple. Its purpose is only to
+     * reserve the correct amount of header space until the real
+     * CraftScope logo exists.
      */
     public static void drawPlaceholderLogo(
             GuiGraphics graphics,
@@ -302,7 +319,7 @@ public final class CraftScopeUiTheme {
                 ACCENT
         );
 
-        int center =
+        int centerSize =
                 Math.max(
                         2,
                         size / 6
@@ -315,10 +332,10 @@ public final class CraftScopeUiTheme {
                 y + size / 2;
 
         graphics.fill(
-                centerX - center / 2,
-                centerY - center / 2,
-                centerX - center / 2 + center,
-                centerY - center / 2 + center,
+                centerX - centerSize / 2,
+                centerY - centerSize / 2,
+                centerX - centerSize / 2 + centerSize,
+                centerY - centerSize / 2 + centerSize,
                 ACCENT
         );
     }

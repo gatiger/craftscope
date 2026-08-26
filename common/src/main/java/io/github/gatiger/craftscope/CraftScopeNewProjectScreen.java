@@ -1,78 +1,122 @@
 package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class CraftScopeNewProjectScreen extends Screen {
+public class CraftScopeNewProjectScreen
+        extends CraftScopeBaseScreen {
 
     private final Screen parent;
 
     private EditBox nameField;
 
-    public CraftScopeNewProjectScreen(Screen parent) {
-        super(Component.literal("New CraftScope Project"));
-        this.parent = parent;
+    private int fieldX;
+    private int fieldY;
+
+    public CraftScopeNewProjectScreen(
+            Screen parent
+    ) {
+        super(
+                Component.literal(
+                        "New CraftScope Project"
+                )
+        );
+
+        this.parent =
+                parent;
     }
 
     @Override
     protected void init() {
         super.init();
 
-        int centerX = width / 2;
+        int centerX =
+                craftscope$getStandardCenterX();
 
-        nameField = new EditBox(
-                font,
-                centerX - 100,
-                80,
-                200,
-                20,
-                Component.literal("Project Name")
+        int top =
+                craftscope$getStandardWindowTop();
+
+        fieldX =
+                centerX - 110;
+
+        fieldY =
+                top + 110;
+
+        nameField =
+                new EditBox(
+                        font,
+                        fieldX + 5,
+                        fieldY + 4,
+                        210,
+                        16,
+                        Component.literal(
+                                "Project Name"
+                        )
+                );
+
+        nameField.setBordered(
+                false
         );
 
-        nameField.setMaxLength(64);
+        nameField.setMaxLength(
+                64
+        );
+
         nameField.setHint(
-                Component.literal("Enter project name")
-        );
-
-        addRenderableWidget(nameField);
-
-        addRenderableWidget(
-                Button.builder(
-                                Component.literal("Create"),
-                                button -> createProject()
-                        )
-                        .bounds(
-                                centerX - 75,
-                                115,
-                                70,
-                                20
-                        )
-                        .build()
+                Component.literal(
+                        "Enter project name"
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Cancel"),
-                                button -> minecraft.setScreen(parent)
-                        )
-                        .bounds(
-                                centerX + 5,
-                                115,
-                                70,
-                                20
-                        )
-                        .build()
+                nameField
         );
 
-        setInitialFocus(nameField);
+        addRenderableWidget(
+                new CraftScopeFlatButton(
+                        centerX - 88,
+                        top + 150,
+                        82,
+                        22,
+                        Component.literal(
+                                "Create"
+                        ),
+                        this::createProject
+                )
+        );
+
+        addRenderableWidget(
+                new CraftScopeFlatButton(
+                        centerX + 6,
+                        top + 150,
+                        82,
+                        22,
+                        Component.literal(
+                                "Cancel"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
+        );
+
+        setInitialFocus(
+                nameField
+        );
     }
 
     private void createProject() {
-        String name = nameField.getValue().trim();
+        String name =
+                nameField
+                        .getValue()
+                        .trim();
 
         if (name.isEmpty()) {
             return;
@@ -84,7 +128,9 @@ public class CraftScopeNewProjectScreen extends Screen {
                 1
         );
 
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
     }
 
     @Override
@@ -94,32 +140,52 @@ public class CraftScopeNewProjectScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
+        craftscope$renderStandardShell(
+                graphics,
+                "New Project",
+                "Create a new crafting or production project"
+        );
+
+        int panelTop =
+                craftscope$getStandardWindowTop() + 86;
+
+        int panelBottom =
+                craftscope$getStandardWindowBottom() - 72;
+
+        craftscope$drawContentPanel(
+                graphics,
+                panelTop,
+                panelBottom
+        );
+
+        graphics.drawString(
+                font,
+                "Project Name",
+                fieldX,
+                fieldY - 15,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        craftscope$drawFieldBackground(
+                graphics,
+                fieldX,
+                fieldY,
+                220,
+                24
+        );
+
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
         );
-
-        graphics.drawCenteredString(
-                font,
-                "Create Project",
-                width / 2,
-                35,
-                0xFFFFFF
-        );
-
-        graphics.drawCenteredString(
-                font,
-                "Project Name",
-                width / 2,
-                65,
-                0xCCCCCC
-        );
     }
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
     }
 }

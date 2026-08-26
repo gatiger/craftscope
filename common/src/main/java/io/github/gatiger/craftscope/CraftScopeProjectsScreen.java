@@ -2,25 +2,39 @@ package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 import java.util.List;
 
-public class CraftScopeProjectsScreen extends Screen {
+public class CraftScopeProjectsScreen
+        extends CraftScopeBaseScreen {
 
-    private static final int ROW_HEIGHT = 24;
-    private static final int MAX_VISIBLE_ROWS = 6;
+    private static final int ROW_HEIGHT =
+            28;
+
+    private static final int MAX_VISIBLE_ROWS =
+            6;
 
     private final Screen parent;
 
-    private int scrollOffset = 0;
+    private int scrollOffset;
 
-    public CraftScopeProjectsScreen(Screen parent) {
-        super(Component.literal("CraftScope Projects"));
-        this.parent = parent;
+    public CraftScopeProjectsScreen(
+            Screen parent
+    ) {
+        super(
+                Component.literal(
+                        "CraftScope Projects"
+                )
+        );
+
+        this.parent =
+                parent;
     }
 
     @Override
@@ -30,115 +44,155 @@ public class CraftScopeProjectsScreen extends Screen {
         List<CraftScopeProject> projects =
                 CraftScopeProjectManager.getProjects();
 
-        int centerX = width / 2;
-        int listTop = 70;
+        int left =
+                craftscope$getStandardWindowLeft();
+
+        int right =
+                craftscope$getStandardWindowRight();
+
+        int centerX =
+                craftscope$getStandardCenterX();
+
+        int top =
+                craftscope$getStandardWindowTop();
+
+        int listTop =
+                top + 96;
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("New Project"),
-                                button -> minecraft.setScreen(
-                                        new CraftScopeNewProjectScreen(this)
+                new CraftScopeFlatButton(
+                        centerX - 75,
+                        top + 58,
+                        150,
+                        24,
+                        Component.literal(
+                                "New Project"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        new CraftScopeNewProjectScreen(
+                                                this
+                                        )
                                 )
-                        )
-                        .bounds(
-                                centerX - 70,
-                                42,
-                                140,
-                                20
-                        )
-                        .build()
+                )
         );
 
-        int remaining = projects.size() - scrollOffset;
+        int remaining =
+                projects.size()
+                        - scrollOffset;
 
-        int visibleCount = Math.min(
-                MAX_VISIBLE_ROWS,
-                Math.max(0, remaining)
-        );
+        int visibleCount =
+                Math.min(
+                        MAX_VISIBLE_ROWS,
+                        Math.max(
+                                0,
+                                remaining
+                        )
+                );
 
-        for (int i = 0; i < visibleCount; i++) {
+        for (int i = 0;
+             i < visibleCount;
+             i++) {
 
             CraftScopeProject project =
-                    projects.get(scrollOffset + i);
+                    projects.get(
+                            scrollOffset + i
+                    );
 
-            String label = project.getName();
+            String label =
+                    project.getName();
 
             if (project.getTargetCount() > 1) {
-                label += "  x" + project.getTargetCount();
+                label +=
+                        "   x"
+                                + project.getTargetCount();
             }
 
+            final CraftScopeProject selected =
+                    project;
+
             addRenderableWidget(
-                    Button.builder(
-                                    Component.literal(label),
-                                    button -> minecraft.setScreen(
+                    new CraftScopeFlatButton(
+                            left + 45,
+                            listTop
+                                    + i * ROW_HEIGHT,
+                            right
+                                    - left
+                                    - 90,
+                            22,
+                            Component.literal(
+                                    label
+                            ),
+                            () ->
+                                    minecraft.setScreen(
                                             new CraftScopeProjectScreen(
                                                     this,
-                                                    project
+                                                    selected
                                             )
                                     )
-                            )
-                            .bounds(
-                                    centerX - 100,
-                                    listTop + (i * ROW_HEIGHT),
-                                    200,
-                                    20
-                            )
-                            .build()
+                    )
             );
         }
 
         if (scrollOffset > 0) {
+
             addRenderableWidget(
-                    Button.builder(
-                                    Component.literal("▲"),
-                                    button -> {
-                                        scrollOffset--;
-                                        rebuildWidgets();
-                                    }
-                            )
-                            .bounds(
-                                    centerX + 106,
-                                    listTop,
-                                    20,
-                                    20
-                            )
-                            .build()
+                    new CraftScopeFlatButton(
+                            right - 36,
+                            listTop,
+                            22,
+                            22,
+                            Component.literal(
+                                    "▲"
+                            ),
+                            () -> {
+                                scrollOffset--;
+
+                                rebuildWidgets();
+                            }
+                    )
             );
         }
 
-        if (scrollOffset + MAX_VISIBLE_ROWS < projects.size()) {
+        if (scrollOffset
+                + MAX_VISIBLE_ROWS
+                < projects.size()) {
+
             addRenderableWidget(
-                    Button.builder(
-                                    Component.literal("▼"),
-                                    button -> {
-                                        scrollOffset++;
-                                        rebuildWidgets();
-                                    }
-                            )
-                            .bounds(
-                                    centerX + 106,
-                                    listTop
-                                            + ((MAX_VISIBLE_ROWS - 1)
-                                            * ROW_HEIGHT),
-                                    20,
-                                    20
-                            )
-                            .build()
+                    new CraftScopeFlatButton(
+                            right - 36,
+                            listTop
+                                    + (
+                                    MAX_VISIBLE_ROWS - 1
+                            ) * ROW_HEIGHT,
+                            22,
+                            22,
+                            Component.literal(
+                                    "▼"
+                            ),
+                            () -> {
+                                scrollOffset++;
+
+                                rebuildWidgets();
+                            }
+                    )
             );
         }
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Back"),
-                                button -> minecraft.setScreen(parent)
-                        )
-                        .bounds(
-                                centerX - 50,
-                                height - 40,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 50,
+                        craftscope$getStandardWindowBottom() - 38,
+                        100,
+                        22,
+                        Component.literal(
+                                "Back"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
         );
     }
 
@@ -149,42 +203,58 @@ public class CraftScopeProjectsScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
+        craftscope$renderStandardShell(
+                graphics,
+                "Projects",
+                "Saved CraftScope projects"
+        );
+
+        int panelTop =
+                craftscope$getStandardWindowTop() + 88;
+
+        int panelBottom =
+                craftscope$getStandardWindowBottom() - 52;
+
+        craftscope$drawContentPanel(
+                graphics,
+                panelTop,
+                panelBottom
+        );
+
+        List<CraftScopeProject> projects =
+                CraftScopeProjectManager.getProjects();
+
+        if (projects.isEmpty()) {
+
+            graphics.drawCenteredString(
+                    font,
+                    "No projects yet.",
+                    craftscope$getStandardCenterX(),
+                    panelTop + 48,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            graphics.drawCenteredString(
+                    font,
+                    "Create one to start planning a craft.",
+                    craftscope$getStandardCenterX(),
+                    panelTop + 66,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+        }
+
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
         );
-
-        graphics.drawCenteredString(
-                font,
-                "Projects",
-                width / 2,
-                20,
-                0xFFFFFF
-        );
-
-        if (CraftScopeProjectManager.getProjects().isEmpty()) {
-            graphics.drawCenteredString(
-                    font,
-                    "No projects yet.",
-                    width / 2,
-                    85,
-                    0xAAAAAA
-            );
-
-            graphics.drawCenteredString(
-                    font,
-                    "Create one to start planning a craft.",
-                    width / 2,
-                    100,
-                    0x777777
-            );
-        }
     }
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
     }
 }

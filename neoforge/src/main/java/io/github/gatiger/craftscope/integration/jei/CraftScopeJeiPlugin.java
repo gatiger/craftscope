@@ -57,35 +57,24 @@ public class CraftScopeJeiPlugin
             return null;
         }
 
-        int sideReserve =
-                170;
+        final int guiLeft =
+                screen.craftscope$getWindowLeft();
 
-        int margin =
-                8;
-
-        int guiLeft =
-                margin;
-
-        int guiTop =
-                margin;
+        final int guiTop =
+                screen.craftscope$getWindowTop();
 
         final int guiWidth =
-                Math.min(
-                        Math.max(
-                                240,
-                                screen.width
-                                        - sideReserve
-                                        - margin * 2
-                        ),
-                        screen.width
-                                - margin * 2
+                Math.max(
+                        1,
+                        screen.craftscope$getWindowRight()
+                                - guiLeft
                 );
 
         final int guiHeight =
                 Math.max(
-                        120,
-                        screen.height
-                                - margin * 2
+                        1,
+                        screen.craftscope$getWindowBottom()
+                                - guiTop
                 );
 
         return new IGuiProperties() {
@@ -186,8 +175,8 @@ public class CraftScopeJeiPlugin
         @Override
         public void onComplete() {
             /*
-             * CraftScope saves the project when the item is
-             * accepted.
+             * CraftScope saves the project when the target item
+             * is accepted.
              */
         }
     }

@@ -2,12 +2,15 @@ package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.client.CraftScopeClientConfig;
 import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class CraftScopeSettingsScreen extends Screen {
+public class CraftScopeSettingsScreen
+        extends CraftScopeBaseScreen {
 
     private final Screen parent;
     private final Screen containerScreen;
@@ -16,72 +19,95 @@ public class CraftScopeSettingsScreen extends Screen {
             Screen parent,
             Screen containerScreen
     ) {
-        super(Component.literal("CraftScope Settings"));
+        super(
+                Component.literal(
+                        "CraftScope Settings"
+                )
+        );
 
-        this.parent = parent;
-        this.containerScreen = containerScreen;
+        this.parent =
+                parent;
+
+        this.containerScreen =
+                containerScreen;
     }
 
     @Override
     protected void init() {
         super.init();
 
-        int buttonWidth = 150;
-        int centerX = width / 2;
+        int centerX =
+                craftscope$getStandardCenterX();
+
+        int top =
+                craftscope$getStandardWindowTop();
+
+        int buttonWidth =
+                190;
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Move Inventory Tab"),
-                                button -> {
-                                    CraftScopeClientConfig.setMoveTabMode(true);
-                                    minecraft.setScreen(containerScreen);
-                                }
-                        )
-                        .bounds(
-                                centerX - buttonWidth / 2,
-                                85,
-                                buttonWidth,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - buttonWidth / 2,
+                        top + 122,
+                        buttonWidth,
+                        24,
+                        Component.literal(
+                                "Move Inventory Tab"
+                        ),
+                        () -> {
+                            CraftScopeClientConfig.setMoveTabMode(
+                                    true
+                            );
+
+                            minecraft.setScreen(
+                                    containerScreen
+                            );
+                        }
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Reset to Automatic"),
-                                button -> {
-                                    CraftScopeClientConfig.setPlacementMode(
-                                            CraftScopeClientConfig
-                                                    .PlacementMode.AUTO
-                                    );
+                new CraftScopeFlatButton(
+                        centerX - buttonWidth / 2,
+                        top + 154,
+                        buttonWidth,
+                        24,
+                        Component.literal(
+                                "Reset to Automatic"
+                        ),
+                        () -> {
+                            CraftScopeClientConfig.setPlacementMode(
+                                    CraftScopeClientConfig
+                                            .PlacementMode.AUTO
+                            );
 
-                                    CraftScopeClientConfig.setMoveTabMode(false);
-                                    CraftScopeClientConfigManager.save();
+                            CraftScopeClientConfig.setMoveTabMode(
+                                    false
+                            );
 
-                                    minecraft.setScreen(containerScreen);
-                                }
-                        )
-                        .bounds(
-                                centerX - buttonWidth / 2,
-                                113,
-                                buttonWidth,
-                                20
-                        )
-                        .build()
+                            CraftScopeClientConfigManager.save();
+
+                            minecraft.setScreen(
+                                    containerScreen
+                            );
+                        }
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Back"),
-                                button -> minecraft.setScreen(parent)
-                        )
-                        .bounds(
-                                centerX - 50,
-                                height - 40,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 50,
+                        craftscope$getStandardWindowBottom() - 38,
+                        100,
+                        22,
+                        Component.literal(
+                                "Back"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
         );
     }
 
@@ -92,38 +118,59 @@ public class CraftScopeSettingsScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
+        craftscope$renderStandardShell(
+                graphics,
+                "Settings",
+                "CraftScope client preferences"
+        );
+
+        int panelTop =
+                craftscope$getStandardWindowTop() + 82;
+
+        int panelBottom =
+                craftscope$getStandardWindowBottom() - 52;
+
+        craftscope$drawContentPanel(
+                graphics,
+                panelTop,
+                panelBottom
+        );
+
+        String placement =
+                CraftScopeClientConfig.getPlacementMode()
+                        == CraftScopeClientConfig.PlacementMode.AUTO
+                        ? "Automatic"
+                        : "Custom";
+
+        graphics.drawString(
+                font,
+                "Inventory Tab Position",
+                craftscope$getStandardWindowLeft() + 32,
+                panelTop + 18,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+
+        graphics.drawString(
+                font,
+                "Current mode: "
+                        + placement,
+                craftscope$getStandardWindowLeft() + 32,
+                panelTop + 38,
+                CraftScopeUiTheme.TEXT_MUTED
+        );
+
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
         );
-
-        graphics.drawCenteredString(
-                font,
-                "Settings",
-                width / 2,
-                30,
-                0xFFFFFF
-        );
-
-        String placement =
-                CraftScopeClientConfig.getPlacementMode()
-                        == CraftScopeClientConfig.PlacementMode.AUTO
-                        ? "Inventory Tab: Automatic"
-                        : "Inventory Tab: Custom";
-
-        graphics.drawCenteredString(
-                font,
-                placement,
-                width / 2,
-                58,
-                0xCCCCCC
-        );
     }
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
     }
 }

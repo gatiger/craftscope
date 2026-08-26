@@ -1,91 +1,127 @@
 package io.github.gatiger.craftscope;
 
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class CraftScopeScreen extends Screen {
+public class CraftScopeScreen
+        extends CraftScopeBaseScreen {
 
     private final Screen parent;
 
-    public CraftScopeScreen(Screen parent) {
-        super(Component.literal("CraftScope"));
-        this.parent = parent;
+    public CraftScopeScreen(
+            Screen parent
+    ) {
+        super(
+                Component.literal(
+                        "CraftScope"
+                )
+        );
+
+        this.parent =
+                parent;
     }
 
     @Override
     protected void init() {
         super.init();
 
-        int buttonWidth = 140;
-        int buttonHeight = 20;
-        int centerX = width / 2;
-        int startY = 85;
+        int centerX =
+                craftscope$getStandardCenterX();
+
+        int top =
+                craftscope$getStandardWindowTop();
+
+        int buttonWidth =
+                190;
+
+        int buttonHeight =
+                24;
+
+        int gap =
+                8;
+
+        int startY =
+                top + 88;
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Projects"),
-                                button -> minecraft.setScreen(
-                                        new CraftScopeProjectsScreen(this)
+                new CraftScopeFlatButton(
+                        centerX - buttonWidth / 2,
+                        startY,
+                        buttonWidth,
+                        buttonHeight,
+                        Component.literal(
+                                "Projects"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        new CraftScopeProjectsScreen(
+                                                this
+                                        )
                                 )
-                        )
-                        .bounds(
-                                centerX - buttonWidth / 2,
-                                startY,
-                                buttonWidth,
-                                buttonHeight
-                        )
-                        .build()
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Guide"),
-                                button -> minecraft.setScreen(
-                                        new CraftScopeGuideScreen(this)
+                new CraftScopeFlatButton(
+                        centerX - buttonWidth / 2,
+                        startY
+                                + buttonHeight
+                                + gap,
+                        buttonWidth,
+                        buttonHeight,
+                        Component.literal(
+                                "Guide"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        new CraftScopeGuideScreen(
+                                                this
+                                        )
                                 )
-                        )
-                        .bounds(
-                                centerX - buttonWidth / 2,
-                                startY + 28,
-                                buttonWidth,
-                                buttonHeight
-                        )
-                        .build()
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Settings"),
-                                button -> minecraft.setScreen(
+                new CraftScopeFlatButton(
+                        centerX - buttonWidth / 2,
+                        startY
+                                + (
+                                buttonHeight
+                                        + gap
+                        ) * 2,
+                        buttonWidth,
+                        buttonHeight,
+                        Component.literal(
+                                "Settings"
+                        ),
+                        () ->
+                                minecraft.setScreen(
                                         new CraftScopeSettingsScreen(
                                                 this,
                                                 parent
                                         )
                                 )
-                        )
-                        .bounds(
-                                centerX - buttonWidth / 2,
-                                startY + 56,
-                                buttonWidth,
-                                buttonHeight
-                        )
-                        .build()
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal("Back"),
-                                button -> minecraft.setScreen(parent)
-                        )
-                        .bounds(
-                                centerX - 50,
-                                height - 40,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 50,
+                        craftscope$getStandardWindowBottom() - 38,
+                        100,
+                        22,
+                        Component.literal(
+                                "Exit"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
         );
     }
 
@@ -96,32 +132,52 @@ public class CraftScopeScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
+        craftscope$renderStandardShell(
+                graphics,
+                "",
+                "See the whole craft."
+        );
+
+        int left =
+                craftscope$getStandardWindowLeft() + 16;
+
+        int right =
+                craftscope$getStandardWindowRight() - 16;
+
+        int top =
+                craftscope$getStandardWindowTop() + 72;
+
+        int bottom =
+                craftscope$getStandardWindowBottom() - 52;
+
+        CraftScopeUiTheme.drawPanel(
+                graphics,
+                left,
+                top,
+                right,
+                bottom
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Plan complex crafting and production chains.",
+                craftscope$getStandardCenterX(),
+                top + 12,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
         );
-
-        graphics.drawCenteredString(
-                font,
-                "CraftScope",
-                width / 2,
-                30,
-                0xFFFFFF
-        );
-
-        graphics.drawCenteredString(
-                font,
-                "See the whole craft.",
-                width / 2,
-                48,
-                0xAAAAAA
-        );
     }
 
     @Override
     public void onClose() {
-        minecraft.setScreen(parent);
+        minecraft.setScreen(
+                parent
+        );
     }
 }

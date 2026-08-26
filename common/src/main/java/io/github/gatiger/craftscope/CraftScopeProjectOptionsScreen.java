@@ -2,19 +2,25 @@ package io.github.gatiger.craftscope;
 
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
+import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
-public class CraftScopeProjectOptionsScreen extends Screen {
+public class CraftScopeProjectOptionsScreen
+        extends CraftScopeBaseScreen {
 
     private final Screen parent;
     private final Screen projectsScreen;
     private final CraftScopeProject project;
 
     private EditBox nameField;
+
+    private int fieldX;
+    private int fieldY;
 
     public CraftScopeProjectOptionsScreen(
             Screen parent,
@@ -42,19 +48,32 @@ public class CraftScopeProjectOptionsScreen extends Screen {
         super.init();
 
         int centerX =
-                width / 2;
+                craftscope$getStandardCenterX();
+
+        int top =
+                craftscope$getStandardWindowTop();
+
+        fieldX =
+                centerX - 110;
+
+        fieldY =
+                top + 105;
 
         nameField =
                 new EditBox(
                         font,
-                        centerX - 100,
-                        75,
-                        200,
-                        20,
+                        fieldX + 5,
+                        fieldY + 4,
+                        210,
+                        16,
                         Component.literal(
                                 "Project Name"
                         )
                 );
+
+        nameField.setBordered(
+                false
+        );
 
         nameField.setMaxLength(
                 64
@@ -69,62 +88,54 @@ public class CraftScopeProjectOptionsScreen extends Screen {
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal(
-                                        "Save Name"
-                                ),
-                                button ->
-                                        saveName()
-                        )
-                        .bounds(
-                                centerX - 75,
-                                105,
-                                150,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 75,
+                        top + 142,
+                        150,
+                        23,
+                        Component.literal(
+                                "Save Name"
+                        ),
+                        this::saveName
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal(
-                                        "Delete Project"
-                                ),
-                                button ->
-                                        minecraft.setScreen(
-                                                new CraftScopeDeleteProjectScreen(
-                                                        this,
-                                                        projectsScreen,
-                                                        project
-                                                )
+                new CraftScopeFlatButton(
+                        centerX - 75,
+                        top + 178,
+                        150,
+                        23,
+                        Component.literal(
+                                "Delete Project"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        new CraftScopeDeleteProjectScreen(
+                                                this,
+                                                projectsScreen,
+                                                project
                                         )
-                        )
-                        .bounds(
-                                centerX - 75,
-                                145,
-                                150,
-                                20
-                        )
-                        .build()
+                                )
+                ).setDanger(
+                        true
+                )
         );
 
         addRenderableWidget(
-                Button.builder(
-                                Component.literal(
-                                        "Back"
-                                ),
-                                button ->
-                                        minecraft.setScreen(
-                                                parent
-                                        )
-                        )
-                        .bounds(
-                                centerX - 50,
-                                height - 40,
-                                100,
-                                20
-                        )
-                        .build()
+                new CraftScopeFlatButton(
+                        centerX - 50,
+                        craftscope$getStandardWindowBottom() - 38,
+                        100,
+                        22,
+                        Component.literal(
+                                "Back"
+                        ),
+                        () ->
+                                minecraft.setScreen(
+                                        parent
+                                )
+                )
         );
 
         setInitialFocus(
@@ -160,35 +171,45 @@ public class CraftScopeProjectOptionsScreen extends Screen {
             int mouseY,
             float partialTick
     ) {
+        craftscope$renderStandardShell(
+                graphics,
+                "Project Options",
+                project.getName()
+        );
+
+        int panelTop =
+                craftscope$getStandardWindowTop() + 80;
+
+        int panelBottom =
+                craftscope$getStandardWindowBottom() - 52;
+
+        craftscope$drawContentPanel(
+                graphics,
+                panelTop,
+                panelBottom
+        );
+
+        graphics.drawString(
+                font,
+                "Project Name",
+                fieldX,
+                fieldY - 15,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        craftscope$drawFieldBackground(
+                graphics,
+                fieldX,
+                fieldY,
+                220,
+                24
+        );
+
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
-        );
-
-        graphics.drawCenteredString(
-                font,
-                "Project Options",
-                width / 2,
-                25,
-                0xFFFFFF
-        );
-
-        graphics.drawCenteredString(
-                font,
-                project.getName(),
-                width / 2,
-                43,
-                0xAAAAAA
-        );
-
-        graphics.drawCenteredString(
-                font,
-                "Project Name",
-                width / 2,
-                60,
-                0xCCCCCC
         );
     }
 

@@ -9,10 +9,10 @@ import net.minecraft.network.chat.Component;
 import java.util.Objects;
 
 /*
- * Modern CraftScope-specific button.
+ * CraftScope's application-style button.
  *
- * Unlike Minecraft's normal textured button, this uses the
- * flatter panel styling from the CraftScope UI concept.
+ * This replaces the normal textured Minecraft button where we
+ * want the flatter, darker interface used by CraftScope.
  */
 public final class CraftScopeFlatButton
         extends AbstractButton {
@@ -122,7 +122,9 @@ public final class CraftScopeFlatButton
                     CraftScopeUiTheme.ACCENT_BACKGROUND;
 
             border =
-                    CraftScopeUiTheme.ACCENT;
+                    highlighted
+                            ? CraftScopeUiTheme.ACCENT_HOVER
+                            : CraftScopeUiTheme.ACCENT;
 
             textColor =
                     CraftScopeUiTheme.TEXT_PRIMARY;
@@ -167,11 +169,17 @@ public final class CraftScopeFlatButton
                 border
         );
 
+        int lineHeight =
+                Minecraft
+                        .getInstance()
+                        .font
+                        .lineHeight;
+
         int textY =
                 getY()
                         + (
                         getHeight()
-                                - 8
+                                - lineHeight
                 ) / 2;
 
         graphics.drawCenteredString(
