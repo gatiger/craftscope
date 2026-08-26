@@ -79,6 +79,8 @@ public class CraftScopeProjectScreen extends Screen
 
     private Button recipeTreeButton;
     private Button totalMaterialsButton;
+    private Button processDiagramButton;
+    private Button setupButton;
 
     private ViewMode activeView =
             ViewMode.RECIPE_TREE;
@@ -97,10 +99,17 @@ public class CraftScopeProjectScreen extends Screen
             Screen parent,
             CraftScopeProject project
     ) {
-        super(Component.literal(project.getName()));
+        super(
+                Component.literal(
+                        project.getName()
+                )
+        );
 
-        this.parent = parent;
-        this.project = project;
+        this.parent =
+                parent;
+
+        this.project =
+                project;
 
         loadRecipeOverrides();
     }
@@ -131,12 +140,20 @@ public class CraftScopeProjectScreen extends Screen
         super.init();
 
         targetSlotX =
-                width / 2 - TARGET_SLOT_SIZE / 2;
+                width / 2
+                        - TARGET_SLOT_SIZE / 2;
 
-        targetSlotY = 75;
+        targetSlotY =
+                75;
 
         int centerX =
                 width / 2;
+
+        /*
+         * -----------------------------------------------------
+         * Target quantity
+         * -----------------------------------------------------
+         */
 
         quantityField =
                 new EditBox(
@@ -145,7 +162,9 @@ public class CraftScopeProjectScreen extends Screen
                         118,
                         50,
                         20,
-                        Component.literal("Quantity")
+                        Component.literal(
+                                "Quantity"
+                        )
                 );
 
         quantityField.setValue(
@@ -157,7 +176,9 @@ public class CraftScopeProjectScreen extends Screen
         quantityField.setFilter(
                 value ->
                         value.isEmpty()
-                                || value.matches("\\d+")
+                                || value.matches(
+                                "\\d+"
+                        )
         );
 
         quantityField.setResponder(
@@ -172,7 +193,9 @@ public class CraftScopeProjectScreen extends Screen
                 Button.builder(
                                 Component.literal("-"),
                                 button ->
-                                        craftscope$changeQuantity(-1)
+                                        craftscope$changeQuantity(
+                                                -1
+                                        )
                         )
                         .bounds(
                                 centerX - 50,
@@ -187,7 +210,9 @@ public class CraftScopeProjectScreen extends Screen
                 Button.builder(
                                 Component.literal("+"),
                                 button ->
-                                        craftscope$changeQuantity(1)
+                                        craftscope$changeQuantity(
+                                                1
+                                        )
                         )
                         .bounds(
                                 centerX + 30,
@@ -198,10 +223,17 @@ public class CraftScopeProjectScreen extends Screen
                         .build()
         );
 
+        /*
+         * -----------------------------------------------------
+         * Main project tabs
+         * -----------------------------------------------------
+         */
+
         int totalViewWidth =
                 VIEW_BUTTON_WIDTH
-                        * 2
-                        + VIEW_BUTTON_GAP;
+                        * 4
+                        + VIEW_BUTTON_GAP
+                        * 3;
 
         int firstViewButtonX =
                 centerX
@@ -249,23 +281,158 @@ public class CraftScopeProjectScreen extends Screen
                                 .build()
                 );
 
+        processDiagramButton =
+                addRenderableWidget(
+                        Button.builder(
+                                        Component.literal(
+                                                "Process Diagram"
+                                        ),
+                                        button ->
+                                                setActiveView(
+                                                        ViewMode.PROCESS_DIAGRAM
+                                                )
+                                )
+                                .bounds(
+                                        firstViewButtonX
+                                                + (
+                                                VIEW_BUTTON_WIDTH
+                                                        + VIEW_BUTTON_GAP
+                                        ) * 2,
+                                        VIEW_BUTTON_Y,
+                                        VIEW_BUTTON_WIDTH,
+                                        VIEW_BUTTON_HEIGHT
+                                )
+                                .build()
+                );
+
+        setupButton =
+                addRenderableWidget(
+                        Button.builder(
+                                        Component.literal(
+                                                "Setup"
+                                        ),
+                                        button ->
+                                                setActiveView(
+                                                        ViewMode.SETUP
+                                                )
+                                )
+                                .bounds(
+                                        firstViewButtonX
+                                                + (
+                                                VIEW_BUTTON_WIDTH
+                                                        + VIEW_BUTTON_GAP
+                                        ) * 3,
+                                        VIEW_BUTTON_Y,
+                                        VIEW_BUTTON_WIDTH,
+                                        VIEW_BUTTON_HEIGHT
+                                )
+                                .build()
+                );
+
+        /*
+         * -----------------------------------------------------
+         * Top-right controls
+         * -----------------------------------------------------
+         */
+
+        int topButtonY =
+                8;
+
+        int exitWidth =
+                45;
+
+        int optionsWidth =
+                60;
+
+        int helpWidth =
+                50;
+
+        int topGap =
+                4;
+
+        int exitX =
+                width
+                        - CONTENT_SIDE_MARGIN
+                        - exitWidth;
+
+        int optionsX =
+                exitX
+                        - topGap
+                        - optionsWidth;
+
+        int helpX =
+                optionsX
+                        - topGap
+                        - helpWidth;
+
         addRenderableWidget(
                 Button.builder(
-                                Component.literal("Back"),
+                                Component.literal(
+                                        "Help"
+                                ),
                                 button ->
-                                        minecraft.setScreen(parent)
+                                        minecraft.setScreen(
+                                                new CraftScopeGuideScreen(
+                                                        this
+                                                )
+                                        )
                         )
                         .bounds(
-                                centerX - 50,
-                                height - 40,
-                                100,
+                                helpX,
+                                topButtonY,
+                                helpWidth,
                                 20
                         )
                         .build()
         );
 
-        treeScroll = 0;
-        materialScroll = 0;
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal(
+                                        "Options"
+                                ),
+                                button ->
+                                        minecraft.setScreen(
+                                                new CraftScopeProjectOptionsScreen(
+                                                        this,
+                                                        parent,
+                                                        project
+                                                )
+                                        )
+                        )
+                        .bounds(
+                                optionsX,
+                                topButtonY,
+                                optionsWidth,
+                                20
+                        )
+                        .build()
+        );
+
+        addRenderableWidget(
+                Button.builder(
+                                Component.literal(
+                                        "Exit"
+                                ),
+                                button ->
+                                        minecraft.setScreen(
+                                                parent
+                                        )
+                        )
+                        .bounds(
+                                exitX,
+                                topButtonY,
+                                exitWidth,
+                                20
+                        )
+                        .build()
+        );
+
+        treeScroll =
+                0;
+
+        materialScroll =
+                0;
 
         updateViewButtons();
 
@@ -275,15 +442,20 @@ public class CraftScopeProjectScreen extends Screen
     private void setActiveView(
             ViewMode viewMode
     ) {
-        activeView = viewMode;
+        activeView =
+                viewMode;
 
-        if (activeView == ViewMode.RECIPE_TREE) {
+        switch (activeView) {
 
-            clampTreeScroll();
+            case RECIPE_TREE ->
+                    clampTreeScroll();
 
-        } else {
+            case TOTAL_MATERIALS ->
+                    clampMaterialScroll();
 
-            clampMaterialScroll();
+            case PROCESS_DIAGRAM,
+                 SETUP -> {
+            }
         }
 
         updateViewButtons();
@@ -303,6 +475,20 @@ public class CraftScopeProjectScreen extends Screen
                     activeView
                             != ViewMode.TOTAL_MATERIALS;
         }
+
+        if (processDiagramButton != null) {
+
+            processDiagramButton.active =
+                    activeView
+                            != ViewMode.PROCESS_DIAGRAM;
+        }
+
+        if (setupButton != null) {
+
+            setupButton.active =
+                    activeView
+                            != ViewMode.SETUP;
+        }
     }
 
     private void rebuildTree() {
@@ -311,15 +497,19 @@ public class CraftScopeProjectScreen extends Screen
 
         if (target.isEmpty()) {
 
-            currentTree = null;
+            currentTree =
+                    null;
 
             currentMaterialSummary =
                     new CraftScopeMaterialSummary(
                             List.of()
                     );
 
-            treeScroll = 0;
-            materialScroll = 0;
+            treeScroll =
+                    0;
+
+            materialScroll =
+                    0;
 
             return;
         }
@@ -361,7 +551,9 @@ public class CraftScopeProjectScreen extends Screen
     ) {
         if (node.getPreferredRecipeId() != null
                 && node.getTotalRecipeCount() > 1
-                && !recipeChoices.containsKey(nodePath)) {
+                && !recipeChoices.containsKey(
+                nodePath
+        )) {
 
             List<ResourceLocation> choices =
                     new ArrayList<>();
@@ -378,12 +570,14 @@ public class CraftScopeProjectScreen extends Screen
                     savedOverrideString == null
                             ? null
                             : ResourceLocation.tryParse(
-                                    savedOverrideString
-                            );
+                            savedOverrideString
+                    );
 
             if (savedOverride == null) {
 
-                choices.add(selected);
+                choices.add(
+                        selected
+                );
 
                 choices.addAll(
                         node.getAlternativeRecipeIds()
@@ -406,9 +600,13 @@ public class CraftScopeProjectScreen extends Screen
                 for (ResourceLocation id :
                         node.getAlternativeRecipeIds()) {
 
-                    if (!id.equals(savedOverride)) {
+                    if (!id.equals(
+                            savedOverride
+                    )) {
 
-                        defaultRecipe = id;
+                        defaultRecipe =
+                                id;
+
                         break;
                     }
                 }
@@ -423,9 +621,13 @@ public class CraftScopeProjectScreen extends Screen
                 for (ResourceLocation id :
                         allRecipes) {
 
-                    if (!choices.contains(id)) {
+                    if (!choices.contains(
+                            id
+                    )) {
 
-                        choices.add(id);
+                        choices.add(
+                                id
+                        );
                     }
                 }
             }
@@ -539,14 +741,26 @@ public class CraftScopeProjectScreen extends Screen
     ) {
         /*
          * Render Minecraft's background and widgets first.
+         *
          * CraftScope's custom content is drawn afterward so it
-         * remains sharp rather than being blurred.
+         * stays sharp.
          */
         super.render(
                 graphics,
                 mouseX,
                 mouseY,
                 partialTick
+        );
+
+        /*
+         * Permanent CraftScope branding.
+         */
+        graphics.drawString(
+                font,
+                "CRAFTSCOPE",
+                CONTENT_SIDE_MARGIN,
+                12,
+                0xFFFFFF
         );
 
         graphics.drawCenteredString(
@@ -594,23 +808,419 @@ public class CraftScopeProjectScreen extends Screen
                 0xCCCCCC
         );
 
-        if (activeView
-                == ViewMode.RECIPE_TREE) {
+        switch (activeView) {
 
-            renderRecipeTree(
-                    graphics,
-                    mouseX,
-                    mouseY
-            );
+            case RECIPE_TREE ->
+                    renderRecipeTree(
+                            graphics,
+                            mouseX,
+                            mouseY
+                    );
 
-        } else {
+            case TOTAL_MATERIALS ->
+                    renderTotalMaterials(
+                            graphics,
+                            mouseX,
+                            mouseY
+                    );
 
-            renderTotalMaterials(
-                    graphics,
-                    mouseX,
-                    mouseY
+            case PROCESS_DIAGRAM ->
+                    renderProcessDiagramPlaceholder(
+                            graphics
+                    );
+
+            case SETUP ->
+                    renderSetupPlaceholder(
+                            graphics
+                    );
+        }
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Process Diagram placeholder
+     * ---------------------------------------------------------
+     *
+     * This establishes the permanent three-column visual shell:
+     *
+     * Production Routes
+     * Process Diagram
+     * Selected Item / Machine
+     *
+     * The real production-route engine will populate these
+     * panels in later steps.
+     */
+    private void renderProcessDiagramPlaceholder(
+            GuiGraphics graphics
+    ) {
+        int top =
+                CONTENT_VIEWPORT_TOP;
+
+        int bottom =
+                getViewportBottom();
+
+        int left =
+                CONTENT_SIDE_MARGIN;
+
+        int right =
+                width
+                        - CONTENT_SIDE_MARGIN;
+
+        int gap =
+                6;
+
+        int leftPanelWidth =
+                Math.min(
+                        125,
+                        Math.max(
+                                90,
+                                width / 5
+                        )
+                );
+
+        int rightPanelWidth =
+                Math.min(
+                        150,
+                        Math.max(
+                                105,
+                                width / 5
+                        )
+                );
+
+        int centerLeft =
+                left
+                        + leftPanelWidth
+                        + gap;
+
+        int centerRight =
+                right
+                        - rightPanelWidth
+                        - gap;
+
+        drawPanel(
+                graphics,
+                left,
+                top,
+                left + leftPanelWidth,
+                bottom
+        );
+
+        drawPanel(
+                graphics,
+                centerLeft,
+                top,
+                centerRight,
+                bottom
+        );
+
+        drawPanel(
+                graphics,
+                centerRight + gap,
+                top,
+                right,
+                bottom
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Production Routes",
+                left
+                        + leftPanelWidth / 2,
+                top + 10,
+                0xFFFFFF
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Process Diagram",
+                centerLeft
+                        + (
+                        centerRight
+                                - centerLeft
+                ) / 2,
+                top + 10,
+                0xFFFFFF
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Selected Item / Machine",
+                centerRight
+                        + gap
+                        + rightPanelWidth / 2,
+                top + 10,
+                0xFFFFFF
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Production routes",
+                left
+                        + leftPanelWidth / 2,
+                top + 34,
+                0xAAAAAA
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "will appear here.",
+                left
+                        + leftPanelWidth / 2,
+                top + 49,
+                0x888888
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Actual item and machine icons",
+                centerLeft
+                        + (
+                        centerRight
+                                - centerLeft
+                ) / 2,
+                top + 45,
+                0xAAAAAA
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "will form the production flow.",
+                centerLeft
+                        + (
+                        centerRight
+                                - centerLeft
+                ) / 2,
+                top + 60,
+                0x888888
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Click a diagram node",
+                centerRight
+                        + gap
+                        + rightPanelWidth / 2,
+                top + 45,
+                0xAAAAAA
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "to view details.",
+                centerRight
+                        + gap
+                        + rightPanelWidth / 2,
+                top + 60,
+                0x888888
+        );
+
+        renderProcessSummaryBar(
+                graphics
+        );
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Setup placeholder
+     * ---------------------------------------------------------
+     */
+    private void renderSetupPlaceholder(
+            GuiGraphics graphics
+    ) {
+        int left =
+                CONTENT_SIDE_MARGIN;
+
+        int right =
+                width
+                        - CONTENT_SIDE_MARGIN;
+
+        int top =
+                CONTENT_VIEWPORT_TOP;
+
+        int bottom =
+                getViewportBottom();
+
+        drawPanel(
+                graphics,
+                left,
+                top,
+                right,
+                bottom
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Setup",
+                width / 2,
+                top + 12,
+                0xFFFFFF
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Required machines and supporting infrastructure",
+                width / 2,
+                top + 42,
+                0xAAAAAA
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "will be shown here.",
+                width / 2,
+                top + 57,
+                0x888888
+        );
+
+        renderProcessSummaryBar(
+                graphics
+        );
+    }
+
+    /*
+     * Bottom information bar used by Process Diagram and Setup.
+     */
+    private void renderProcessSummaryBar(
+            GuiGraphics graphics
+    ) {
+        int left =
+                CONTENT_SIDE_MARGIN;
+
+        int right =
+                width
+                        - CONTENT_SIDE_MARGIN;
+
+        int top =
+                height - 55;
+
+        int bottom =
+                height - 20;
+
+        drawPanel(
+                graphics,
+                left,
+                top,
+                right,
+                bottom
+        );
+
+        int sectionWidth =
+                (right - left)
+                        / 4;
+
+        /*
+         * Vertical separators.
+         */
+        for (int i = 1;
+             i < 4;
+             i++) {
+
+            int separatorX =
+                    left
+                            + sectionWidth
+                            * i;
+
+            graphics.fill(
+                    separatorX,
+                    top + 4,
+                    separatorX + 1,
+                    bottom - 4,
+                    0xFF3A3A3A
             );
         }
+
+        graphics.drawCenteredString(
+                font,
+                "Materials",
+                left
+                        + sectionWidth / 2,
+                top + 13,
+                0xCCCCCC
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Machines",
+                left
+                        + sectionWidth
+                        + sectionWidth / 2,
+                top + 13,
+                0xCCCCCC
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Fluids / Chemicals",
+                left
+                        + sectionWidth * 2
+                        + sectionWidth / 2,
+                top + 13,
+                0xCCCCCC
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Output",
+                left
+                        + sectionWidth * 3
+                        + sectionWidth / 2,
+                top + 13,
+                0xCCCCCC
+        );
+    }
+
+    /*
+     * Shared dark CraftScope panel.
+     *
+     * This is the beginning of the visual language from the
+     * UI concept we selected.
+     */
+    private void drawPanel(
+            GuiGraphics graphics,
+            int left,
+            int top,
+            int right,
+            int bottom
+    ) {
+        graphics.fill(
+                left,
+                top,
+                right,
+                bottom,
+                0xE0181818
+        );
+
+        graphics.fill(
+                left,
+                top,
+                right,
+                top + 1,
+                0xFF555555
+        );
+
+        graphics.fill(
+                left,
+                bottom - 1,
+                right,
+                bottom,
+                0xFF333333
+        );
+
+        graphics.fill(
+                left,
+                top,
+                left + 1,
+                bottom,
+                0xFF555555
+        );
+
+        graphics.fill(
+                right - 1,
+                top,
+                right,
+                bottom,
+                0xFF333333
+        );
     }
 
     private void renderTargetSlot(
@@ -625,10 +1235,12 @@ public class CraftScopeProjectScreen extends Screen
                 targetSlotY;
 
         int right =
-                left + TARGET_SLOT_SIZE;
+                left
+                        + TARGET_SLOT_SIZE;
 
         int bottom =
-                top + TARGET_SLOT_SIZE;
+                top
+                        + TARGET_SLOT_SIZE;
 
         graphics.fill(
                 left,
@@ -808,13 +1420,16 @@ public class CraftScopeProjectScreen extends Screen
                 );
 
         int indent =
-                depth * TREE_INDENT;
+                depth
+                        * TREE_INDENT;
 
         int arrowX =
-                treeLeft + indent;
+                treeLeft
+                        + indent;
 
         int iconX =
-                arrowX + 12;
+                arrowX
+                        + 12;
 
         if (rowY + CONTENT_ROW_HEIGHT >= viewportTop
                 && rowY <= viewportBottom) {
@@ -963,13 +1578,17 @@ public class CraftScopeProjectScreen extends Screen
         int desiredX =
                 iconX
                         + 20
-                        + font.width(itemText)
+                        + font.width(
+                        itemText
+                )
                         + 8;
 
         int maxX =
                 width
                         - CONTENT_SIDE_MARGIN
-                        - font.width(selectorText)
+                        - font.width(
+                        selectorText
+                )
                         - 8;
 
         int selectorX =
@@ -1010,7 +1629,9 @@ public class CraftScopeProjectScreen extends Screen
              i++) {
 
             if (choices.get(i)
-                    .equals(selected)) {
+                    .equals(
+                            selected
+                    )) {
 
                 return i;
             }
@@ -1274,12 +1895,12 @@ public class CraftScopeProjectScreen extends Screen
     }
 
     private String findGenericVariantName(
-                List<ItemStack> variants
-        ) {
+            List<ItemStack> variants
+    ) {
         if (variants == null
                 || variants.isEmpty()) {
 
-                return null;
+            return null;
         }
 
         boolean allLogs =
@@ -1294,52 +1915,55 @@ public class CraftScopeProjectScreen extends Screen
         for (ItemStack variant :
                 variants) {
 
-                if (!variant.is(
-                        ItemTags.LOGS
-                )) {
+            if (!variant.is(
+                    ItemTags.LOGS
+            )) {
 
-                allLogs = false;
-                }
+                allLogs =
+                        false;
+            }
 
-                if (!variant.is(
-                        ItemTags.PLANKS
-                )) {
+            if (!variant.is(
+                    ItemTags.PLANKS
+            )) {
 
-                allPlanks = false;
-                }
+                allPlanks =
+                        false;
+            }
 
-                if (!variant.is(
-                        ItemTags.WOOL
-                )) {
+            if (!variant.is(
+                    ItemTags.WOOL
+            )) {
 
-                allWool = false;
-                }
+                allWool =
+                        false;
+            }
         }
 
         if (allLogs) {
-                return "Log";
+            return "Log";
         }
 
         if (allPlanks) {
-                return "Planks";
+            return "Planks";
         }
 
         if (allWool) {
-                return "Wool";
+            return "Wool";
         }
 
         return findCommonWordSuffix(
                 variants
         );
-        }
+    }
 
-        private String findCommonWordSuffix(
-                List<ItemStack> variants
-        ) {
+    private String findCommonWordSuffix(
+            List<ItemStack> variants
+    ) {
         if (variants == null
                 || variants.isEmpty()) {
 
-                return null;
+            return null;
         }
 
         List<String[]> names =
@@ -1348,19 +1972,21 @@ public class CraftScopeProjectScreen extends Screen
         for (ItemStack variant :
                 variants) {
 
-                String name =
-                        variant
-                                .getHoverName()
-                                .getString()
-                                .trim();
+            String name =
+                    variant
+                            .getHoverName()
+                            .getString()
+                            .trim();
 
-                if (name.isEmpty()) {
+            if (name.isEmpty()) {
                 return null;
-                }
+            }
 
-                names.add(
-                        name.split("\\s+")
-                );
+            names.add(
+                    name.split(
+                            "\\s+"
+                    )
+            );
         }
 
         String[] first =
@@ -1370,47 +1996,49 @@ public class CraftScopeProjectScreen extends Screen
                 0;
 
         for (int offset = 1;
-                offset <= first.length;
-                offset++) {
+             offset <= first.length;
+             offset++) {
 
-                String expected =
-                        first[
-                                first.length - offset
-                        ];
+            String expected =
+                    first[
+                            first.length
+                                    - offset
+                            ];
 
-                boolean matchesAll =
-                        true;
+            boolean matchesAll =
+                    true;
 
-                for (int i = 1;
-                i < names.size();
-                i++) {
+            for (int i = 1;
+                 i < names.size();
+                 i++) {
 
                 String[] words =
                         names.get(i);
 
                 if (words.length < offset
                         || !words[
-                                words.length - offset
+                        words.length
+                                - offset
                         ].equalsIgnoreCase(
-                                expected
-                        )) {
+                        expected
+                )) {
 
-                        matchesAll =
-                                false;
+                    matchesAll =
+                            false;
 
-                        break;
+                    break;
                 }
-                }
+            }
 
-                if (!matchesAll) {
+            if (!matchesAll) {
                 break;
-                }
+            }
 
-                commonWords++;
+            commonWords++;
         }
 
         if (commonWords == 0) {
-                return null;
+            return null;
         }
 
         StringBuilder result =
@@ -1421,20 +2049,23 @@ public class CraftScopeProjectScreen extends Screen
                         - commonWords;
 
         for (int i = start;
-                i < first.length;
-                i++) {
+             i < first.length;
+             i++) {
 
-                if (!result.isEmpty()) {
-                result.append(" ");
-                }
+            if (!result.isEmpty()) {
 
                 result.append(
-                        first[i]
+                        " "
                 );
+            }
+
+            result.append(
+                    first[i]
+            );
         }
 
         return result.toString();
-        }
+    }
 
     private String extractLastWord(
             String value
@@ -1451,7 +2082,9 @@ public class CraftScopeProjectScreen extends Screen
         }
 
         int space =
-                trimmed.lastIndexOf(' ');
+                trimmed.lastIndexOf(
+                        ' '
+                );
 
         if (space < 0) {
 
@@ -1648,9 +2281,9 @@ public class CraftScopeProjectScreen extends Screen
                 == ViewMode.RECIPE_TREE
                 && button == 0
                 && handleTreeClick(
-                        mouseX,
-                        mouseY
-                )) {
+                mouseX,
+                mouseY
+        )) {
 
             return true;
         }
@@ -1715,13 +2348,16 @@ public class CraftScopeProjectScreen extends Screen
             double mouseY
     ) {
         int indent =
-                depth * TREE_INDENT;
+                depth
+                        * TREE_INDENT;
 
         int arrowX =
-                treeLeft + indent;
+                treeLeft
+                        + indent;
 
         int iconX =
-                arrowX + 12;
+                arrowX
+                        + 12;
 
         String itemText =
                 getNodeDisplayName(
@@ -1757,7 +2393,8 @@ public class CraftScopeProjectScreen extends Screen
 
         if (hasChildren
                 && mouseY >= rowY
-                && mouseY < rowY + CONTENT_ROW_HEIGHT
+                && mouseY < rowY
+                + CONTENT_ROW_HEIGHT
                 && mouseX >= arrowX - 2
                 && mouseX < arrowX + 28) {
 
@@ -1873,13 +2510,17 @@ public class CraftScopeProjectScreen extends Screen
         int desiredX =
                 iconX
                         + 20
-                        + font.width(itemText)
+                        + font.width(
+                        itemText
+                )
                         + 8;
 
         int maxX =
                 width
                         - CONTENT_SIDE_MARGIN
-                        - font.width(selectorText)
+                        - font.width(
+                        selectorText
+                )
                         - 8;
 
         int selectorX =
@@ -1891,11 +2532,14 @@ public class CraftScopeProjectScreen extends Screen
         return mouseX >= selectorX - 2
                 && mouseX
                 < selectorX
-                + font.width(selectorText)
+                + font.width(
+                selectorText
+        )
                 + 2
                 && mouseY >= rowY
                 && mouseY
-                < rowY + CONTENT_ROW_HEIGHT;
+                < rowY
+                + CONTENT_ROW_HEIGHT;
     }
 
     private void cycleRecipe(
@@ -1964,7 +2608,8 @@ public class CraftScopeProjectScreen extends Screen
             String nodePath
     ) {
         String prefix =
-                nodePath + "/";
+                nodePath
+                        + "/";
 
         recipeOverrides
                 .keySet()
@@ -2044,16 +2689,20 @@ public class CraftScopeProjectScreen extends Screen
 
                 clampTreeScroll();
 
-            } else {
+                return true;
+            }
+
+            if (activeView
+                    == ViewMode.TOTAL_MATERIALS) {
 
                 materialScroll -=
                         scrollY
                                 * SCROLL_AMOUNT;
 
                 clampMaterialScroll();
-            }
 
-            return true;
+                return true;
+            }
         }
 
         return super.mouseScrolled(
@@ -2109,8 +2758,8 @@ public class CraftScopeProjectScreen extends Screen
                 + childIndex
                 + ":"
                 + getItemId(
-                        child.getStack()
-                );
+                child.getStack()
+        );
     }
 
     private String getItemId(
@@ -2153,8 +2802,11 @@ public class CraftScopeProjectScreen extends Screen
         recipeOverrides.clear();
         recipeChoices.clear();
 
-        treeScroll = 0;
-        materialScroll = 0;
+        treeScroll =
+                0;
+
+        materialScroll =
+                0;
 
         CraftScopeProjectManager.save();
 
@@ -2189,8 +2841,14 @@ public class CraftScopeProjectScreen extends Screen
     }
 
     private enum ViewMode {
+
         RECIPE_TREE,
-        TOTAL_MATERIALS
+
+        TOTAL_MATERIALS,
+
+        PROCESS_DIAGRAM,
+
+        SETUP
     }
 
     private record ClickResult(
