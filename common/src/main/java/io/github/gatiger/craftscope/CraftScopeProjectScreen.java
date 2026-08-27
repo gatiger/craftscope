@@ -16,7 +16,7 @@ import io.github.gatiger.craftscope.production.CraftScopeResourceKind;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
-import io.github.gatiger.craftscope.recipe.CraftScopeRecipeResolver;
+import io.github.gatiger.craftscope.recipe.CraftScopeProductionRecipeTreeBuilder;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
 import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
 import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
@@ -408,7 +408,13 @@ public class CraftScopeProjectScreen
             return;
         }
 
-        currentTree = CraftScopeRecipeResolver.resolveTree(
+        /*
+         * Recipe Tree and Process Diagram now share the same
+         * production-provider source of truth. This is what lets
+         * Create recipes participate in the tree instead of
+         * appearing as an unexplained leaf item.
+         */
+        currentTree = CraftScopeProductionRecipeTreeBuilder.resolveTree(
                 target,
                 project.getTargetCount(),
                 recipeOverrides
@@ -425,8 +431,27 @@ public class CraftScopeProjectScreen
     }
 
     private void rebuildProductionRoutes(ItemStack target) {
+        ResourceLocation previousRouteId =
+                selectedProductionRouteIndex >= 0
+                        && selectedProductionRouteIndex
+                        < productionRoutes.size()
+                        ? productionRoutes
+                        .get(selectedProductionRouteIndex)
+                        .id()
+                        : null;
+
+        /*
+         * The selected Recipe Tree is authoritative.
+         *
+         * Process Diagram receives the tree so its root route and
+         * every automatically expanded intermediate step use the
+         * same recipes the player selected in Recipe Tree.
+         */
         List<CraftScopeProductionRoute> routes =
-                CraftScopeProductionRouteQuery.findRoutes(target);
+                CraftScopeProductionRouteQuery.findRoutes(
+                        target,
+                        currentTree
+                );
 
         productionRoutes =
                 routes == null
@@ -439,13 +464,36 @@ public class CraftScopeProjectScreen
             return;
         }
 
-        if (selectedProductionRouteIndex < 0
-                || selectedProductionRouteIndex
-                >= productionRoutes.size()) {
+        int preservedIndex = -1;
 
-            selectedProductionRouteIndex = 0;
-            selectedDiagramNodeIndex = -1;
+        if (previousRouteId != null) {
+            for (int i = 0;
+                 i < productionRoutes.size();
+                 i++) {
+
+                if (productionRoutes
+                        .get(i)
+                        .id()
+                        .equals(previousRouteId)) {
+
+                    preservedIndex = i;
+                    break;
+                }
+            }
         }
+
+        if (preservedIndex >= 0) {
+            selectedProductionRouteIndex = preservedIndex;
+        } else {
+            /*
+             * Expanded synchronized route sorts first when one is
+             * available. This makes Process Diagram open on the
+             * complete breakdown that matches Recipe Tree.
+             */
+            selectedProductionRouteIndex = 0;
+        }
+
+        selectedDiagramNodeIndex = -1;
     }
 
     private void populateRecipeChoices() {

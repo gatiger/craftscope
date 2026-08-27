@@ -60,9 +60,30 @@ public final class CraftScopeProductionRouteExpander {
     public static List<CraftScopeProductionRoute> expand(
             List<CraftScopeProductionRoute> directRoutes
     ) {
+        return expand(
+                directRoutes,
+                Map.of()
+        );
+    }
+
+    /*
+     * Expand while honoring the recipes selected in Recipe Tree.
+     *
+     * Key: output item ID
+     * Value: selected recipe/route choice ID
+     */
+    public static List<CraftScopeProductionRoute> expand(
+            List<CraftScopeProductionRoute> directRoutes,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
         if (directRoutes == null || directRoutes.isEmpty()) {
             return List.of();
         }
+
+        Map<ResourceLocation, ResourceLocation> selections =
+                recipeSelections == null
+                        ? Map.of()
+                        : recipeSelections;
 
         List<CraftScopeProductionRoute> result =
                 new ArrayList<>();
@@ -72,7 +93,10 @@ public final class CraftScopeProductionRouteExpander {
 
         for (CraftScopeProductionRoute route : directRoutes) {
             CraftScopeProductionRoute expanded =
-                    expandRoute(route);
+                    expandRoute(
+                            route,
+                            selections
+                    );
 
             if (expanded == null) {
                 continue;
@@ -89,6 +113,16 @@ public final class CraftScopeProductionRouteExpander {
     public static CraftScopeProductionRoute expandRoute(
             CraftScopeProductionRoute route
     ) {
+        return expandRoute(
+                route,
+                Map.of()
+        );
+    }
+
+    public static CraftScopeProductionRoute expandRoute(
+            CraftScopeProductionRoute route,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
         if (route == null || route.steps().size() != 1) {
             return null;
         }
@@ -100,7 +134,10 @@ public final class CraftScopeProductionRouteExpander {
                 expandInternal(
                         route,
                         visited,
-                        0
+                        0,
+                        recipeSelections == null
+                                ? Map.of()
+                                : recipeSelections
                 );
 
         if (!expansion.expanded()
@@ -124,7 +161,8 @@ public final class CraftScopeProductionRouteExpander {
     private static Expansion expandInternal(
             CraftScopeProductionRoute route,
             Set<ResourceLocation> visited,
-            int depth
+            int depth,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
     ) {
         if (route == null
                 || route.steps().size() != 1
@@ -158,7 +196,8 @@ public final class CraftScopeProductionRouteExpander {
         CraftScopeProductionRoute upstreamRoute =
                 findPreferredUpstreamRoute(
                         expandableInput,
-                        nextVisited
+                        nextVisited,
+                        recipeSelections
                 );
 
         if (upstreamRoute == null) {
@@ -189,7 +228,8 @@ public final class CraftScopeProductionRouteExpander {
                 expandInternal(
                         upstreamRoute,
                         nextVisited,
-                        depth + 1
+                        depth + 1,
+                        recipeSelections
                 );
 
         List<CraftScopeProductionStep> steps =
@@ -242,7 +282,8 @@ public final class CraftScopeProductionRouteExpander {
     private static CraftScopeProductionRoute
     findPreferredUpstreamRoute(
             CraftScopeResourceAmount input,
-            Set<ResourceLocation> visited
+            Set<ResourceLocation> visited,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
     ) {
         if (input == null
                 || input.kind() != CraftScopeResourceKind.ITEM) {
@@ -309,6 +350,36 @@ public final class CraftScopeProductionRouteExpander {
             return null;
         }
 
+        /*
+         * Recipe Tree is authoritative. If the player selected a
+         * recipe for this intermediate item, use the route that
+         * contains that exact recipe before considering priority.
+         *
+         * This prevents cases such as Iron Sheet unexpectedly
+         * expanding Iron Ingot through Create crushing an Iron
+         * Horse Armor simply because Crushing had a larger numeric
+         * route priority.
+         */
+        ResourceLocation selectedRecipe =
+                getSelectedRecipeForInput(
+                        input,
+                        recipeSelections
+                );
+
+        if (selectedRecipe != null) {
+            for (CraftScopeProductionRoute candidate :
+                    candidatesById.values()) {
+
+                if (routeMatchesRecipeChoice(
+                        candidate,
+                        selectedRecipe
+                )) {
+
+                    return candidate;
+                }
+            }
+        }
+
         CraftScopeProductionRoute best = null;
 
         for (CraftScopeProductionRoute candidate :
@@ -338,6 +409,70 @@ public final class CraftScopeProductionRouteExpander {
         }
 
         return best;
+    }
+
+    private static ResourceLocation getSelectedRecipeForInput(
+            CraftScopeResourceAmount input,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (input == null
+                || recipeSelections == null
+                || recipeSelections.isEmpty()) {
+
+            return null;
+        }
+
+        for (ResourceLocation variantId :
+                input.acceptedVariantIds()) {
+
+            ResourceLocation selected =
+                    recipeSelections.get(
+                            variantId
+                    );
+
+            if (selected != null) {
+                return selected;
+            }
+        }
+
+        return recipeSelections.get(
+                input.id()
+        );
+    }
+
+    private static boolean routeMatchesRecipeChoice(
+            CraftScopeProductionRoute route,
+            ResourceLocation choiceId
+    ) {
+        if (route == null
+                || choiceId == null) {
+
+            return false;
+        }
+
+        if (route.id().equals(
+                choiceId
+        )) {
+
+            return true;
+        }
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeProductionMethod method :
+                    step.methods()) {
+
+                if (method.recipeIds().contains(
+                        choiceId
+                )) {
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static boolean routeDependsOnVisitedResource(

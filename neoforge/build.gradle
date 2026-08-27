@@ -9,12 +9,31 @@ configurations {
 }
 
 dependencies {
+    /*
+     * JEI is compile-only for CraftScope code and available in the
+     * NeoForge development client.
+     */
     compileOnly(
         "mezz.jei:jei-${minecraft_version}-neoforge-api:${jei_neoforge_version}"
     )
 
     localRuntime(
         "mezz.jei:jei-${minecraft_version}-neoforge:${jei_neoforge_version}"
+    )
+
+    /*
+     * Create 6.0.10 for Minecraft 1.21.1.
+     *
+     * Use Create's published Modrinth release jar for the
+     * development runtime. CraftScope's common code does not
+     * compile against Create classes.
+     *
+     * Modrinth project: Create
+     * Version: 6.0.10+mc1.21.1
+     * Version ID: UjX6dr61
+     */
+    localRuntime(
+        "maven.modrinth:LNytGWDc:UjX6dr61"
     )
 }
 
@@ -46,7 +65,10 @@ neoForge {
                     'neoforge.enabledGameTestNamespaces',
                     currentModId
             )
-            ideName.set("NeoForge ${name.capitalize()} (${currentProjectPath})")
+
+            ideName.set(
+                    "NeoForge ${name.capitalize()} (${currentProjectPath})"
+            )
         }
 
         client {

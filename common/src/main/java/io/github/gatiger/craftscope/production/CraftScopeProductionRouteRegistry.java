@@ -25,15 +25,25 @@ public final class CraftScopeProductionRouteRegistry {
             new ArrayList<>();
 
     static {
-
         /*
          * Minecraft's normal recipe system is always available.
-         *
-         * Optional mod providers will be registered separately
-         * only when their integration is available.
          */
         register(
                 new CraftScopeVanillaProductionRouteProvider()
+        );
+
+        /*
+         * Create integration is safe to register unconditionally.
+         *
+         * The provider has no Create compile-time dependency and
+         * returns no routes when Create's recipe types are absent.
+         *
+         * This preserves Fabric/NeoForge portability while making
+         * the integration automatically active wherever a
+         * compatible Create installation is present.
+         */
+        register(
+                new CraftScopeCreateProductionRouteProvider()
         );
     }
 
@@ -50,37 +60,21 @@ public final class CraftScopeProductionRouteRegistry {
         String providerId =
                 provider.getProviderId();
 
-        /*
-         * Replace an existing provider with the same ID.
-         *
-         * This makes initialization safe if an integration is
-         * accidentally registered more than once.
-         */
         PROVIDERS.removeIf(
                 existing ->
                         existing
                                 .getProviderId()
-                                .equals(
-                                        providerId
-                                )
+                                .equals(providerId)
         );
 
-        PROVIDERS.add(
-                provider
-        );
+        PROVIDERS.add(provider);
     }
 
     public static List<CraftScopeProductionRouteProvider>
     getProviders() {
-
-        return List.copyOf(
-                PROVIDERS
-        );
+        return List.copyOf(PROVIDERS);
     }
 
-    /*
-     * Convenience method for client screens.
-     */
     public static List<CraftScopeProductionRoute> findRoutes(
             ItemStack target
     ) {
@@ -96,12 +90,8 @@ public final class CraftScopeProductionRouteRegistry {
 
         CraftScopeProductionContext context =
                 new CraftScopeProductionContext(
-                        minecraft
-                                .level
-                                .getRecipeManager(),
-                        minecraft
-                                .level
-                                .registryAccess()
+                        minecraft.level.getRecipeManager(),
+                        minecraft.level.registryAccess()
                 );
 
         return findRoutes(
@@ -128,7 +118,6 @@ public final class CraftScopeProductionRouteRegistry {
                 PROVIDERS) {
 
             try {
-
                 List<CraftScopeProductionRoute>
                         providerRoutes =
                         provider.findRoutes(
@@ -137,17 +126,13 @@ public final class CraftScopeProductionRouteRegistry {
                         );
 
                 if (providerRoutes != null) {
-
-                    routes.addAll(
-                            providerRoutes
-                    );
+                    routes.addAll(providerRoutes);
                 }
 
             } catch (Exception e) {
-
                 /*
                  * One broken optional integration should never
-                 * prevent CraftScope from using all of the other
+                 * prevent CraftScope from using all other
                  * providers.
                  */
                 Constants.LOG.error(
@@ -179,8 +164,6 @@ public final class CraftScopeProductionRouteRegistry {
                         )
         );
 
-        return List.copyOf(
-                routes
-        );
+        return List.copyOf(routes);
     }
 }
