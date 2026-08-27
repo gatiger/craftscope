@@ -12,18 +12,16 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.Locale;
 
 /*
- * Makes probabilistic output totals visibly probabilistic.
+ * Formats non-fixed output totals without confusing ordinary
+ * min-max drops with true chance outputs.
  *
- * CraftScopeProductionSummary keeps the nominal number of output
- * rolls together with each output's chance. This mixin converts
- * that into a concise expected-value label in the shared summary
- * panels.
+ * Examples:
  *
- * Example after four 25% Clay Ball rolls:
+ * Create chance output:
+ *   ≈1 exp. @25%
  *
- *   Clay Ball  ~=1 exp. @25%
- *
- * The actual UI uses the Unicode approximately-equal symbol.
+ * Vanilla range output:
+ *   ≈67.5 exp. (60-75)
  */
 @Mixin(CraftScopeProjectScreen.class)
 public abstract class MixinCraftScopeChanceUi {
@@ -33,7 +31,7 @@ public abstract class MixinCraftScopeChanceUi {
             at = @At("HEAD"),
             cancellable = true
     )
-    private void craftscope$formatChanceSummaryAmount(
+    private void craftscope$formatExpectedSummaryAmount(
             CraftScopeResourceAmount resource,
             CallbackInfoReturnable<String> cir
     ) {
@@ -43,26 +41,37 @@ public abstract class MixinCraftScopeChanceUi {
             return;
         }
 
-        double expected =
-                CraftScopeChancePlanner.expectedAmount(
-                        resource
-                );
-
         String expectedText =
                 craftscope$formatNumber(
-                        expected
-                );
-
-        String percentText =
-                craftscope$formatNumber(
-                        resource.chance()
-                                * 100.0D
+                        resource.expectedAmount()
                 );
 
         String unitText =
                 resource.hasUnit()
                         ? " " + resource.unit()
                         : "";
+
+        if (resource.hasVariableRange()) {
+            cir.setReturnValue(
+                    "≈"
+                            + expectedText
+                            + unitText
+                            + " exp. ("
+                            + resource.minimumAmount()
+                            + "-"
+                            + resource.maximumAmount()
+                            + unitText
+                            + ")"
+            );
+
+            return;
+        }
+
+        String percentText =
+                craftscope$formatNumber(
+                        resource.chance()
+                                * 100.0D
+                );
 
         cir.setReturnValue(
                 "≈"

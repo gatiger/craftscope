@@ -3,44 +3,45 @@ package io.github.gatiger.craftscope.production;
 import java.util.List;
 
 /*
- * Central expected-value math for probabilistic production.
+ * Central expected-value math for probabilistic and variable-yield
+ * production.
  *
- * The production model already stores a per-output chance on
- * CraftScopeResourceAmount. This helper makes every caller use the
- * same interpretation instead of duplicating chance math in Recipe
- * Tree, Process Diagram, Setup, and route expansion.
- *
- * Planning policy:
- *
- * - Guaranteed output: ordinary integer recipe math.
- * - Chance output: plan enough recipe runs for the EXPECTED output
- *   to meet the requested quantity.
- * - This is an expectation, not a guarantee. The UI labels chance
- *   outputs as expected values rather than promising the player a
- *   deterministic result.
- *
- * Example:
+ * Examples:
  *
  * Sand -> Clay Ball x1 at 25%
+ *   expected = 0.25 / run
  *
- * Expected yield = 0.25 Clay Ball / run.
- * Request 1 Clay Ball -> 4 planned runs.
+ * Redstone Ore -> 4-5 Redstone Dust
+ *   expected = 4.5 / run
+ *
+ * The planner uses expected values for quantity planning. The UI
+ * still preserves whether the source was an actual probability or
+ * an ordinary min-max range so it does not misrepresent one as the
+ * other.
  */
 public final class CraftScopeChancePlanner {
 
-    private static final double GUARANTEED_EPSILON = 0.000001D;
+    private static final double GUARANTEED_EPSILON =
+            0.000001D;
 
-    private static final double MATH_EPSILON = 0.000000001D;
+    private static final double MATH_EPSILON =
+            0.000000001D;
 
     private CraftScopeChancePlanner() {
     }
 
+    /*
+     * Historical name retained for compatibility with the existing
+     * UI mixin. It now means "not a single fixed amount".
+     */
     public static boolean isChanceOutput(
             CraftScopeResourceAmount resource
     ) {
         return resource != null
-                && resource.chance()
-                < 1.0D - GUARANTEED_EPSILON;
+                && (
+                resource.isProbabilistic()
+                        || resource.hasVariableRange()
+        );
     }
 
     public static double expectedAmount(
@@ -50,17 +51,27 @@ public final class CraftScopeChancePlanner {
             return 0.0D;
         }
 
-        return safeExpectedMultiply(
-                resource.amount(),
-                resource.chance()
-        );
+        double value =
+                resource.expectedAmount();
+
+        if (Double.isNaN(value)
+                || value <= 0.0D) {
+
+            return 0.0D;
+        }
+
+        if (Double.isInfinite(value)) {
+            return Double.MAX_VALUE;
+        }
+
+        return value;
     }
 
     public static double expectedAmount(
             CraftScopeResourceAmount resource,
             long runs
     ) {
-        if (resource == null || runs <= 0) {
+        if (resource == null || runs <= 0L) {
             return 0.0D;
         }
 
@@ -88,14 +99,6 @@ public final class CraftScopeChancePlanner {
         );
     }
 
-    /*
-     * Expected yield of the route's requested target per route run.
-     *
-     * Prefer outputs from the final step. This correctly handles a
-     * recipe that contains more than one roll for the same target
-     * item while avoiding accidental double-counting of an
-     * intermediate resource in a multi-step route.
-     */
     public static double expectedTargetAmountPerRun(
             CraftScopeProductionRoute route
     ) {
@@ -125,10 +128,6 @@ public final class CraftScopeChancePlanner {
             }
         }
 
-        /*
-         * Defensive fallback for providers that expose targetOutput
-         * but do not duplicate it in the final step output list.
-         */
         return expectedAmount(
                 route.targetOutput()
         );
@@ -150,12 +149,6 @@ public final class CraftScopeChancePlanner {
                 );
 
         if (!(expectedPerRun > MATH_EPSILON)) {
-            /*
-             * A zero-chance target is not meaningfully plannable.
-             * Providers should not expose one, but returning a
-             * conservative saturated value is safer than silently
-             * treating it as guaranteed.
-             */
             return Long.MAX_VALUE;
         }
 
@@ -163,11 +156,8 @@ public final class CraftScopeChancePlanner {
                 requested
                         / expectedPerRun;
 
-        if (Double.isNaN(rawRuns)) {
-            return Long.MAX_VALUE;
-        }
-
-        if (Double.isInfinite(rawRuns)
+        if (Double.isNaN(rawRuns)
+                || Double.isInfinite(rawRuns)
                 || rawRuns >= Long.MAX_VALUE) {
 
             return Long.MAX_VALUE;
@@ -195,8 +185,7 @@ public final class CraftScopeChancePlanner {
             return 0.0D;
         }
 
-        double expected =
-                0.0D;
+        double expected = 0.0D;
 
         for (CraftScopeResourceAmount output : outputs) {
             if (!matchesTarget(
@@ -207,7 +196,9 @@ public final class CraftScopeChancePlanner {
             }
 
             expected +=
-                    expectedAmount(output);
+                    expectedAmount(
+                            output
+                    );
 
             if (Double.isInfinite(expected)) {
                 return Double.MAX_VALUE;
@@ -240,59 +231,6 @@ public final class CraftScopeChancePlanner {
 
         return candidate.unit().equals(
                 target.unit()
-        );
-    }
-
-    private static double safeExpectedMultiply(
-            long amount,
-            double chance
-    ) {
-        if (amount <= 0L) {
-            return 0.0D;
-        }
-
-        double normalizedChance =
-                normalizeChance(
-                        chance
-                );
-
-        if (normalizedChance <= 0.0D) {
-            return 0.0D;
-        }
-
-        double result =
-                amount
-                        * normalizedChance;
-
-        if (Double.isNaN(result)) {
-            return 0.0D;
-        }
-
-        if (Double.isInfinite(result)) {
-            return Double.MAX_VALUE;
-        }
-
-        return Math.max(
-                0.0D,
-                result
-        );
-    }
-
-    private static double normalizeChance(
-            double chance
-    ) {
-        if (Double.isNaN(chance)
-                || Double.isInfinite(chance)) {
-
-            return 0.0D;
-        }
-
-        return Math.max(
-                0.0D,
-                Math.min(
-                        1.0D,
-                        chance
-                )
         );
     }
 }

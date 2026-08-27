@@ -4,6 +4,8 @@ import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
 import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
+import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
+import io.github.gatiger.craftscope.production.CraftScopeResourceKind;
 import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
@@ -18,25 +20,9 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.List;
 
 /*
- * Shows the actual accepted tool variants for acquisition process
- * nodes.
- *
- * The vanilla acquisition provider supplies tier-aware tool lists:
- *
- * Any Pickaxe:
- *   Wood -> Gold -> Stone -> Iron -> Diamond -> Netherite
- *
- * Stone Pickaxe or better:
- *   Stone -> Iron -> Diamond -> Netherite
- *
- * Iron Pickaxe or better:
- *   Iron -> Diamond -> Netherite
- *
- * The icon cycles only through tools that can legitimately harvest
- * the selected resource. This is intentionally data-driven through
- * CraftScopeProcessRequirement.acceptedVariantIds(), so future
- * providers can use the same behavior for axes, hoes, shears,
- * modded tools, etc.
+ * Rotates through only the tools that satisfy the acquisition's
+ * harvest tier. Tool-less breaking routes fall back to showing the
+ * block being broken instead of a generic P icon.
  */
 @Mixin(CraftScopeProcessDiagramRenderer.class)
 public abstract class MixinCraftScopeMiningProcessIcon {
@@ -49,7 +35,7 @@ public abstract class MixinCraftScopeMiningProcessIcon {
             at = @At("RETURN"),
             cancellable = true
     )
-    private static void craftscope$showAcceptedToolVariant(
+    private static void craftscope$showAcquisitionIcon(
             CraftScopeProductionStep step,
             CallbackInfoReturnable<ItemStack> cir
     ) {
@@ -88,12 +74,31 @@ public abstract class MixinCraftScopeMiningProcessIcon {
                     );
 
             if (!stack.isEmpty()) {
-
-                cir.setReturnValue(
-                        stack
-                );
-
+                cir.setReturnValue(stack);
                 return;
+            }
+        }
+
+        if (method.processId() != null
+                && "craftscope:breaking".equals(
+                method.processId().toString()
+        )
+                && !step.inputs().isEmpty()) {
+
+            CraftScopeResourceAmount input =
+                    step.inputs().getFirst();
+
+            if (input.kind()
+                    == CraftScopeResourceKind.ITEM) {
+
+                ItemStack stack =
+                        craftscope$getItemStack(
+                                input.id()
+                        );
+
+                if (!stack.isEmpty()) {
+                    cir.setReturnValue(stack);
+                }
             }
         }
     }
@@ -108,14 +113,9 @@ public abstract class MixinCraftScopeMiningProcessIcon {
         List<ResourceLocation> ids =
                 requirement.acceptedVariantIds();
 
-        if (ids == null
-                || ids.isEmpty()) {
-
-            ResourceLocation id =
-                    requirement.id();
-
+        if (ids == null || ids.isEmpty()) {
             return craftscope$getItemStack(
-                    id
+                    requirement.id()
             );
         }
 
@@ -130,9 +130,7 @@ public abstract class MixinCraftScopeMiningProcessIcon {
                 );
 
         return craftscope$getItemStack(
-                ids.get(
-                        index
-                )
+                ids.get(index)
         );
     }
 
@@ -144,18 +142,12 @@ public abstract class MixinCraftScopeMiningProcessIcon {
         }
 
         Item item =
-                BuiltInRegistries.ITEM.get(
-                        id
-                );
+                BuiltInRegistries.ITEM.get(id);
 
-        if (item == null
-                || item == Items.AIR) {
-
+        if (item == null || item == Items.AIR) {
             return ItemStack.EMPTY;
         }
 
-        return new ItemStack(
-                item
-        );
+        return new ItemStack(item);
     }
 }

@@ -14,17 +14,8 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.List;
 
 /*
- * The normalizer intentionally gives ordinary ore transformations
- * the generic route name "Ore Processing". That is useful for
- * smelting, crushing, washing, etc., but it is misleading for
- * acquisition routes:
- *
- *   Iron Ore -> Mining -> Raw Iron
- *
- * should remain "Mining Iron Ore", not "Ore Processing".
- *
- * This keeps acquisition names intact without weakening the normal
- * cross-mod recipe/process normalization behavior.
+ * Keep acquisition route names descriptive instead of allowing
+ * the generic ore-processing normalizer to rename them.
  */
 @Mixin(CraftScopeProductionRouteNormalizer.class)
 public abstract class MixinCraftScopeMiningRouteNames {
@@ -60,16 +51,12 @@ public abstract class MixinCraftScopeMiningRouteNames {
         }
 
         String processId =
-                method
-                        .processId()
+                method.processId()
                         .toString();
 
-        if ("craftscope:mining".equals(
-                processId
-        )
-                || "craftscope:digging".equals(
-                processId
-        )) {
+        if ("craftscope:mining".equals(processId)
+                || "craftscope:digging".equals(processId)
+                || "craftscope:breaking".equals(processId)) {
 
             cir.setReturnValue(
                     representative.displayName()

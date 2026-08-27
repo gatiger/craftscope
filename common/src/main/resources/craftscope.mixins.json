@@ -16,6 +16,11 @@
     "MixinCraftScopeProcessDiagramResourceCycle",
     "MixinCraftScopeMiningRouteNames",
     "MixinCraftScopeMiningProcessIcon",
+    "MixinCraftScopeYieldSummary",
+    "MixinCraftScopeYieldNormalization",
+    "MixinCraftScopeVariableYieldDiagramUi",
+    "MixinCraftScopeDiagramExpectedRuns",
+    "MixinCraftScopeProcessRouteSelectionSync",
     "ScreenAccessor",
     "ScreenChildrenAccessor",
     "AbstractContainerScreenAccessor"

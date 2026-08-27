@@ -13,30 +13,18 @@ import java.util.List;
 /*
  * Vanilla world-acquisition routes.
  *
- * Minecraft recipes are only one way to obtain resources. Some
- * materials are normally obtained by interacting with the world
- * rather than through RecipeManager.
+ * CraftScope models ordinary/default harvesting only. Enchantment
+ * effects are intentionally outside this provider. A future
+ * enchantment guide can explain enchanting without changing normal
+ * recipe/drop planning.
  *
- * The acquisition provider deliberately starts with deterministic
- * baseline drops. It does NOT yet guess variable loot such as:
+ * Tool requirements still enforce the real minimum harvest tier.
  *
- * - Redstone Ore (variable count)
- * - Lapis Ore (variable count)
- * - Copper Ore (variable count)
- * - Nether Gold Ore (variable count)
- * - Gravel -> Flint (chance)
- * - Glowstone (variable count)
- *
- * Fortune/Silk Touch variants can be added later as explicit,
- * selectable acquisition methods. For ores whose normal no-Fortune
- * drop is deterministic, this provider models that baseline and
- * notes that Fortune can increase the yield.
- *
- * Tool requirements carry exact accepted item variants. This lets
- * CraftScope rotate the usable tool icons while still respecting
- * Minecraft harvest tiers. A Gold Pickaxe is therefore included
- * for blocks that accept wooden-tier tools, but correctly excluded
- * from Stone-or-better and Iron-or-better requirements.
+ * Direct world acquisition is intentionally prioritized above
+ * inefficient furnace recovery recipes. For example, Redstone Ore
+ * normally drops 4-5 Redstone Dust when mined but smelts into only
+ * one dust. Recipe Tree should therefore default to Mining Redstone
+ * Ore while still keeping smelting available as an alternate route.
  */
 public final class CraftScopeVanillaAcquisitionRouteProvider
         implements CraftScopeProductionRouteProvider {
@@ -48,220 +36,286 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
             "minecraft";
 
     private static final Component SOURCE_MOD_NAME =
-            Component.literal(
-                    "Minecraft"
-            );
+            Component.literal("Minecraft");
 
     private static final ResourceLocation MINING_PROCESS_ID =
-            requireId(
-                    "craftscope:mining"
-            );
+            requireId("craftscope:mining");
 
     private static final ResourceLocation DIGGING_PROCESS_ID =
-            requireId(
-                    "craftscope:digging"
-            );
+            requireId("craftscope:digging");
+
+    private static final ResourceLocation BREAKING_PROCESS_ID =
+            requireId("craftscope:breaking");
 
     private static final List<AcquisitionDefinition> DEFINITIONS =
             List.of(
                     /*
-                     * -------------------------------------------------
-                     * Basic block transformations
-                     * -------------------------------------------------
+                     * Fixed normal drops
                      */
-                    mining(
+                    fixedMining(
                             "stone_to_cobblestone",
                             Items.STONE,
-                            1,
                             Items.COBBLESTONE,
                             1,
                             "Mining Stone",
-                            1600,
-                            anyPickaxe(
-                                    "Any Pickaxe (no Silk Touch)"
-                            )
+                            4100,
+                            anyPickaxe("Any Pickaxe")
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_to_cobbled_deepslate",
                             Items.DEEPSLATE,
-                            1,
                             Items.COBBLED_DEEPSLATE,
                             1,
                             "Mining Deepslate",
-                            1590,
-                            anyPickaxe(
-                                    "Any Pickaxe (no Silk Touch)"
-                            )
+                            4090,
+                            anyPickaxe("Any Pickaxe")
                     ),
-                    mining(
+                    fixedMining(
                             "clay_to_clay_balls",
                             Items.CLAY,
-                            1,
                             Items.CLAY_BALL,
                             4,
                             "Mining Clay",
                             1580
                     ),
-
-                    /*
-                     * -------------------------------------------------
-                     * Deterministic baseline ore drops
-                     *
-                     * Normal + deepslate definitions deliberately use
-                     * the same process name and the same tier-aware
-                     * requirement so they normalize into one logical
-                     * material route.
-                     * -------------------------------------------------
-                     */
-                    mining(
+                    fixedMining(
                             "coal_ore_to_coal",
                             Items.COAL_ORE,
-                            1,
                             Items.COAL,
                             1,
                             "Mining Coal Ore",
-                            1570,
-                            anyPickaxe(
-                                    "Any Pickaxe (no Silk Touch; Fortune may increase yield)"
-                            )
+                            4070,
+                            anyPickaxe("Any Pickaxe")
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_coal_ore_to_coal",
                             Items.DEEPSLATE_COAL_ORE,
-                            1,
                             Items.COAL,
                             1,
                             "Mining Coal Ore",
-                            1570,
-                            anyPickaxe(
-                                    "Any Pickaxe (no Silk Touch; Fortune may increase yield)"
-                            )
+                            4070,
+                            anyPickaxe("Any Pickaxe")
                     ),
-                    mining(
+                    fixedMining(
                             "iron_ore_to_raw_iron",
                             Items.IRON_ORE,
-                            1,
                             Items.RAW_IRON,
                             1,
                             "Mining Iron Ore",
-                            1560,
+                            4060,
                             stonePickaxeOrBetter(
-                                    "Stone Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Stone Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_iron_ore_to_raw_iron",
                             Items.DEEPSLATE_IRON_ORE,
-                            1,
                             Items.RAW_IRON,
                             1,
                             "Mining Iron Ore",
-                            1560,
+                            4060,
                             stonePickaxeOrBetter(
-                                    "Stone Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Stone Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "gold_ore_to_raw_gold",
                             Items.GOLD_ORE,
-                            1,
                             Items.RAW_GOLD,
                             1,
                             "Mining Gold Ore",
-                            1550,
+                            4050,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_gold_ore_to_raw_gold",
                             Items.DEEPSLATE_GOLD_ORE,
-                            1,
                             Items.RAW_GOLD,
                             1,
                             "Mining Gold Ore",
-                            1550,
+                            4050,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "diamond_ore_to_diamond",
                             Items.DIAMOND_ORE,
-                            1,
                             Items.DIAMOND,
                             1,
                             "Mining Diamond Ore",
-                            1540,
+                            4040,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_diamond_ore_to_diamond",
                             Items.DEEPSLATE_DIAMOND_ORE,
-                            1,
                             Items.DIAMOND,
                             1,
                             "Mining Diamond Ore",
-                            1540,
+                            4040,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "emerald_ore_to_emerald",
                             Items.EMERALD_ORE,
-                            1,
                             Items.EMERALD,
                             1,
                             "Mining Emerald Ore",
-                            1530,
+                            4030,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "deepslate_emerald_ore_to_emerald",
                             Items.DEEPSLATE_EMERALD_ORE,
-                            1,
                             Items.EMERALD,
                             1,
                             "Mining Emerald Ore",
-                            1530,
+                            4030,
                             ironPickaxeOrBetter(
-                                    "Iron Pickaxe or better (no Silk Touch; Fortune may increase yield)"
+                                    "Iron Pickaxe or better"
                             )
                     ),
-                    mining(
+                    fixedMining(
                             "nether_quartz_ore_to_quartz",
                             Items.NETHER_QUARTZ_ORE,
-                            1,
                             Items.QUARTZ,
                             1,
                             "Mining Nether Quartz Ore",
-                            1520,
-                            anyPickaxe(
-                                    "Any Pickaxe (no Silk Touch; Fortune may increase yield)"
-                            )
+                            4020,
+                            anyPickaxe("Any Pickaxe")
                     ),
 
                     /*
-                     * -------------------------------------------------
-                     * Deterministic non-pickaxe collection
-                     * -------------------------------------------------
+                     * Normal variable drops.
+                     *
+                     * These are explicit min-max ranges. CraftScope
+                     * uses the midpoint as expected yield for planning
+                     * while the UI still shows the real range.
                      */
-                    digging(
+                    rangedMining(
+                            "redstone_ore_to_redstone",
+                            Items.REDSTONE_ORE,
+                            Items.REDSTONE,
+                            4,
+                            5,
+                            "Mining Redstone Ore",
+                            4010,
+                            ironPickaxeOrBetter(
+                                    "Iron Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "deepslate_redstone_ore_to_redstone",
+                            Items.DEEPSLATE_REDSTONE_ORE,
+                            Items.REDSTONE,
+                            4,
+                            5,
+                            "Mining Redstone Ore",
+                            4010,
+                            ironPickaxeOrBetter(
+                                    "Iron Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "lapis_ore_to_lapis",
+                            Items.LAPIS_ORE,
+                            Items.LAPIS_LAZULI,
+                            4,
+                            9,
+                            "Mining Lapis Ore",
+                            4000,
+                            stonePickaxeOrBetter(
+                                    "Stone Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "deepslate_lapis_ore_to_lapis",
+                            Items.DEEPSLATE_LAPIS_ORE,
+                            Items.LAPIS_LAZULI,
+                            4,
+                            9,
+                            "Mining Lapis Ore",
+                            4000,
+                            stonePickaxeOrBetter(
+                                    "Stone Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "copper_ore_to_raw_copper",
+                            Items.COPPER_ORE,
+                            Items.RAW_COPPER,
+                            2,
+                            5,
+                            "Mining Copper Ore",
+                            3990,
+                            stonePickaxeOrBetter(
+                                    "Stone Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "deepslate_copper_ore_to_raw_copper",
+                            Items.DEEPSLATE_COPPER_ORE,
+                            Items.RAW_COPPER,
+                            2,
+                            5,
+                            "Mining Copper Ore",
+                            3990,
+                            stonePickaxeOrBetter(
+                                    "Stone Pickaxe or better"
+                            )
+                    ),
+                    rangedMining(
+                            "nether_gold_ore_to_gold_nuggets",
+                            Items.NETHER_GOLD_ORE,
+                            Items.GOLD_NUGGET,
+                            2,
+                            6,
+                            "Mining Nether Gold Ore",
+                            3980,
+                            anyPickaxe("Any Pickaxe")
+                    ),
+
+                    /*
+                     * Non-pickaxe/default collection.
+                     */
+                    fixedDigging(
                             "snow_block_to_snowballs",
                             Items.SNOW_BLOCK,
-                            1,
                             Items.SNOWBALL,
                             4,
                             "Digging Snow",
-                            1510,
-                            anyShovel(
-                                    "Any Shovel (no Silk Touch)"
-                            )
+                            3970,
+                            anyShovel("Any Shovel")
+                    ),
+                    rangedBreakingMethod(
+                            "glowstone_to_glowstone_dust_hand",
+                            Items.GLOWSTONE,
+                            Items.GLOWSTONE_DUST,
+                            2,
+                            4,
+                            "Breaking Glowstone",
+                            "Breaking by Hand",
+                            1460
+                    ),
+                    rangedBreakingMethod(
+                            "glowstone_to_glowstone_dust_pickaxe",
+                            Items.GLOWSTONE,
+                            Items.GLOWSTONE_DUST,
+                            2,
+                            4,
+                            "Breaking Glowstone",
+                            "Breaking with Pickaxe",
+                            3959,
+                            anyPickaxe("Any Pickaxe")
                     )
             );
 
@@ -275,25 +329,23 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
             ItemStack target,
             CraftScopeProductionContext context
     ) {
-        if (target == null
-                || target.isEmpty()) {
-
+        if (target == null || target.isEmpty()) {
             return List.of();
         }
 
         List<CraftScopeProductionRoute> routes =
                 new ArrayList<>();
 
-        for (AcquisitionDefinition definition :
-                DEFINITIONS) {
+        for (AcquisitionDefinition definition : DEFINITIONS) {
+            ItemStack outputStack =
+                    new ItemStack(
+                            definition.outputItem()
+                    );
 
             if (!ItemStack.isSameItem(
                     target,
-                    new ItemStack(
-                            definition.outputItem()
-                    )
+                    outputStack
             )) {
-
                 continue;
             }
 
@@ -302,25 +354,39 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
                             new ItemStack(
                                     definition.inputItem()
                             ),
-                            definition.inputAmount(),
+                            1,
                             true
                     );
 
-            CraftScopeResourceAmount output =
-                    CraftScopeResourceAmount.item(
-                            new ItemStack(
-                                    definition.outputItem()
-                            ),
-                            definition.outputAmount(),
-                            false
-                    );
+            CraftScopeResourceAmount output;
+
+            if (definition.minimumOutput()
+                    == definition.maximumOutput()) {
+
+                output =
+                        CraftScopeResourceAmount.item(
+                                outputStack,
+                                definition.minimumOutput(),
+                                false
+                        );
+
+            } else {
+
+                output =
+                        CraftScopeResourceAmount.variableItem(
+                                outputStack,
+                                definition.minimumOutput(),
+                                definition.maximumOutput(),
+                                false
+                        );
+            }
 
             CraftScopeProductionMethod method =
                     new CraftScopeProductionMethod(
                             SOURCE_MOD_ID,
                             definition.processId(),
                             Component.literal(
-                                    definition.displayName()
+                                    definition.methodDisplayName()
                             ),
                             List.of(),
                             definition.requirements()
@@ -333,15 +399,9 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
                             Component.literal(
                                     definition.displayName()
                             ),
-                            List.of(
-                                    input
-                            ),
-                            List.of(
-                                    output
-                            ),
-                            List.of(
-                                    method
-                            )
+                            List.of(input),
+                            List.of(output),
+                            List.of(method)
                     );
 
             routes.add(
@@ -353,98 +413,184 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
                                     definition.displayName()
                             ),
                             output,
-                            List.of(
-                                    step
-                            ),
+                            List.of(step),
                             definition.priority()
                     )
             );
         }
 
-        return List.copyOf(
-                routes
-        );
+        return List.copyOf(routes);
     }
 
-    private static AcquisitionDefinition mining(
-            String routePath,
+    private static AcquisitionDefinition fixedMining(
+            String path,
             Item input,
-            long inputAmount,
             Item output,
-            long outputAmount,
-            String displayName,
+            long amount,
+            String name,
             int priority,
             CraftScopeProcessRequirement... requirements
     ) {
-        return acquisition(
-                "mining/" + routePath,
+        return definition(
+                "mining/" + path,
                 MINING_PROCESS_ID,
                 input,
-                inputAmount,
                 output,
-                outputAmount,
-                displayName,
+                amount,
+                amount,
+                name,
                 priority,
                 requirements
         );
     }
 
-    private static AcquisitionDefinition digging(
-            String routePath,
+    private static AcquisitionDefinition rangedMining(
+            String path,
             Item input,
-            long inputAmount,
             Item output,
-            long outputAmount,
-            String displayName,
+            long minimum,
+            long maximum,
+            String name,
             int priority,
             CraftScopeProcessRequirement... requirements
     ) {
-        return acquisition(
-                "digging/" + routePath,
-                DIGGING_PROCESS_ID,
+        return definition(
+                "mining/" + path,
+                MINING_PROCESS_ID,
                 input,
-                inputAmount,
                 output,
-                outputAmount,
-                displayName,
+                minimum,
+                maximum,
+                name,
                 priority,
                 requirements
         );
     }
 
-    private static AcquisitionDefinition acquisition(
-            String routePath,
+    private static AcquisitionDefinition fixedDigging(
+            String path,
+            Item input,
+            Item output,
+            long amount,
+            String name,
+            int priority,
+            CraftScopeProcessRequirement... requirements
+    ) {
+        return definition(
+                "digging/" + path,
+                DIGGING_PROCESS_ID,
+                input,
+                output,
+                amount,
+                amount,
+                name,
+                priority,
+                requirements
+        );
+    }
+
+    private static AcquisitionDefinition rangedBreaking(
+            String path,
+            Item input,
+            Item output,
+            long minimum,
+            long maximum,
+            String name,
+            int priority,
+            CraftScopeProcessRequirement... requirements
+    ) {
+        return definition(
+                "breaking/" + path,
+                BREAKING_PROCESS_ID,
+                input,
+                output,
+                minimum,
+                maximum,
+                name,
+                priority,
+                requirements
+        );
+    }
+
+    private static AcquisitionDefinition rangedBreakingMethod(
+            String path,
+            Item input,
+            Item output,
+            long minimum,
+            long maximum,
+            String routeName,
+            String methodName,
+            int priority,
+            CraftScopeProcessRequirement... requirements
+    ) {
+        return definition(
+                "breaking/" + path,
+                BREAKING_PROCESS_ID,
+                input,
+                output,
+                minimum,
+                maximum,
+                routeName,
+                methodName,
+                priority,
+                requirements
+        );
+    }
+
+    private static AcquisitionDefinition definition(
+            String path,
             ResourceLocation processId,
             Item input,
-            long inputAmount,
             Item output,
-            long outputAmount,
-            String displayName,
+            long minimum,
+            long maximum,
+            String name,
+            int priority,
+            CraftScopeProcessRequirement... requirements
+    ) {
+        return definition(
+                path,
+                processId,
+                input,
+                output,
+                minimum,
+                maximum,
+                name,
+                name,
+                priority,
+                requirements
+        );
+    }
+
+    private static AcquisitionDefinition definition(
+            String path,
+            ResourceLocation processId,
+            Item input,
+            Item output,
+            long minimum,
+            long maximum,
+            String routeName,
+            String methodName,
             int priority,
             CraftScopeProcessRequirement... requirements
     ) {
         return new AcquisitionDefinition(
                 requireId(
                         "craftscope:acquisition/"
-                                + routePath
+                                + path
                 ),
                 processId,
                 input,
-                inputAmount,
                 output,
-                outputAmount,
-                displayName,
+                minimum,
+                maximum,
+                routeName,
+                methodName,
                 priority,
-                List.of(
-                        requirements
-                )
+                List.of(requirements)
         );
     }
 
-    /*
-     * Wooden-tier blocks can be mined by Wood, Gold, Stone, Iron,
-     * Diamond, or Netherite pickaxes.
-     */
     private static CraftScopeProcessRequirement anyPickaxe(
             String displayName
     ) {
@@ -460,8 +606,8 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
     }
 
     /*
-     * Gold tools have wooden harvest tier, so Gold Pickaxe must NOT
-     * appear here even though it is a pickaxe.
+     * Golden pickaxes have wooden harvest tier, so they are
+     * deliberately absent from Stone-or-better and Iron-or-better.
      */
     private static CraftScopeProcessRequirement stonePickaxeOrBetter(
             String displayName
@@ -523,9 +669,7 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
                 if (id != null
                         && !ids.contains(id)) {
 
-                    ids.add(
-                            id
-                    );
+                    ids.add(id);
                 }
             }
         }
@@ -538,9 +682,7 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
         return new CraftScopeProcessRequirement(
                 CraftScopeRequirementKind.TOOL,
                 representativeId,
-                Component.literal(
-                        displayName
-                ),
+                Component.literal(displayName),
                 1,
                 "",
                 ids
@@ -551,9 +693,7 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
             String value
     ) {
         ResourceLocation id =
-                ResourceLocation.tryParse(
-                        value
-                );
+                ResourceLocation.tryParse(value);
 
         if (id == null) {
             throw new IllegalArgumentException(
@@ -569,10 +709,11 @@ public final class CraftScopeVanillaAcquisitionRouteProvider
             ResourceLocation routeId,
             ResourceLocation processId,
             Item inputItem,
-            long inputAmount,
             Item outputItem,
-            long outputAmount,
+            long minimumOutput,
+            long maximumOutput,
             String displayName,
+            String methodDisplayName,
             int priority,
             List<CraftScopeProcessRequirement> requirements
     ) {
