@@ -35,15 +35,20 @@ public final class CraftScopeProductionRouteRegistry {
         /*
          * Create integration is safe to register unconditionally.
          *
-         * The provider has no Create compile-time dependency and
-         * returns no routes when Create's recipe types are absent.
+         * These providers have no Create compile-time dependency
+         * and return no routes when the corresponding Create
+         * runtime content is absent.
          *
-         * This preserves Fabric/NeoForge portability while making
-         * the integration automatically active wherever a
-         * compatible Create installation is present.
+         * The main provider handles Create-native recipe types.
+         * The fan provider adds synthetic processing methods such
+         * as Bulk Blasting that reuse Minecraft cooking recipes.
          */
         register(
                 new CraftScopeCreateProductionRouteProvider()
+        );
+
+        register(
+                new CraftScopeCreateFanProductionRouteProvider()
         );
     }
 
@@ -146,8 +151,7 @@ public final class CraftScopeProductionRouteRegistry {
         routes.sort(
                 Comparator
                         .comparingInt(
-                                CraftScopeProductionRoute
-                                        ::priority
+                                CraftScopeProductionRoute::priority
                         )
                         .reversed()
                         .thenComparing(

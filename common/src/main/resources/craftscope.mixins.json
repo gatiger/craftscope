@@ -8,6 +8,7 @@
   "client": [
     "MixinMinecraft",
     "MixinAbstractContainerScreen",
+    "MixinCraftScopeProjectScreen",
     "ScreenAccessor",
     "ScreenChildrenAccessor",
     "AbstractContainerScreenAccessor"

@@ -32,6 +32,9 @@ import java.util.Set;
  * - The recipe selected in Recipe Tree can drive Process Diagram.
  * - Future providers (Mekanism, Thermal, etc.) automatically gain
  *   Recipe Tree support when they expose production routes.
+ * - Recipe Source can filter the ROOT target route by mod while
+ *   allowing intermediate materials to continue using any valid
+ *   provider.
  *
  * The tree currently expands direct, one-step routes recursively.
  * Multi-step routes are synthesized later by the Process Diagram
@@ -51,7 +54,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         return resolveTree(
                 target,
                 targetCount,
-                Map.of()
+                Map.of(),
+                null
         );
     }
 
@@ -59,6 +63,33 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             ItemStack target,
             int targetCount,
             Map<String, ResourceLocation> recipeOverrides
+    ) {
+        return resolveTree(
+                target,
+                targetCount,
+                recipeOverrides,
+                null
+        );
+    }
+
+    /*
+     * rootSourceModId is a Recipe Source FILTER, not a second
+     * recipe-selection system.
+     *
+     * It applies only to the target/root item. Once a root route
+     * is selected, recursive ingredients remain free to use their
+     * best available recipes from any provider. This prevents a
+     * "Create only" target route from making ordinary ingredients
+     * impossible just because Create does not itself define every
+     * intermediate crafting recipe.
+     *
+     * null/blank means All Sources.
+     */
+    public static CraftScopeRecipeTree resolveTree(
+            ItemStack target,
+            int targetCount,
+            Map<String, ResourceLocation> recipeOverrides,
+            String rootSourceModId
     ) {
         if (target == null
                 || target.isEmpty()
@@ -72,6 +103,12 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         ? Map.of()
                         : recipeOverrides;
 
+        String sourceFilter =
+                rootSourceModId == null
+                        || rootSourceModId.isBlank()
+                        ? null
+                        : rootSourceModId;
+
         CraftScopeRecipeNode root =
                 resolveNode(
                         target,
@@ -80,7 +117,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         "root",
                         overrides,
                         new HashSet<>(),
-                        0
+                        0,
+                        sourceFilter
                 );
 
         return new CraftScopeRecipeTree(
@@ -95,7 +133,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             String nodePath,
             Map<String, ResourceLocation> recipeOverrides,
             Set<String> activePath,
-            int depth
+            int depth,
+            String sourceFilter
     ) {
         ItemStack stack =
                 requestedStack.copy();
@@ -118,7 +157,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         List<CraftScopeProductionRoute> candidates =
                 findCandidateRoutes(
                         stack,
-                        activePath
+                        activePath,
+                        sourceFilter
                 );
 
         if (candidates.isEmpty()) {
@@ -270,6 +310,10 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                                     representative
                             );
 
+            /*
+             * Recipe Source is intentionally root-only.
+             * Intermediate ingredients return to All Sources.
+             */
             CraftScopeRecipeNode child =
                     resolveNode(
                             representative,
@@ -280,7 +324,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                             childPath,
                             recipeOverrides,
                             activePath,
-                            depth + 1
+                            depth + 1,
+                            null
                     );
 
             node.addChild(
@@ -297,7 +342,8 @@ public final class CraftScopeProductionRecipeTreeBuilder {
 
     private static List<CraftScopeProductionRoute> findCandidateRoutes(
             ItemStack target,
-            Set<String> activePath
+            Set<String> activePath,
+            String sourceFilter
     ) {
         List<CraftScopeProductionRoute> directRoutes =
                 CraftScopeProductionRouteQuery.findDirectRoutes(
@@ -314,16 +360,13 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         for (CraftScopeProductionRoute route :
                 directRoutes) {
 
-            /*
-             * Recipe Tree is recursive, so only a one-step direct
-             * route belongs at one node.
-             */
-            if (route.steps().size() != 1) {
+            if (!isRecipeTreeCandidate(route)) {
                 continue;
             }
 
-            if (!hasConsumedItemInput(
-                    route
+            if (!routeMatchesSource(
+                    route,
+                    sourceFilter
             )) {
 
                 continue;
@@ -344,6 +387,26 @@ public final class CraftScopeProductionRecipeTreeBuilder {
 
         return List.copyOf(
                 candidates
+        );
+    }
+
+    /*
+     * Public because Recipe Source UI uses the exact same
+     * eligibility rule as Recipe Tree. This keeps route counts in
+     * the source selector synchronized with the routes that can
+     * actually appear in the tree.
+     */
+    public static boolean isRecipeTreeCandidate(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null
+                || route.steps().size() != 1) {
+
+            return false;
+        }
+
+        return hasConsumedItemInput(
+                route
         );
     }
 
@@ -368,6 +431,61 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                     && input.amount() > 0) {
 
                 return true;
+            }
+        }
+
+        return false;
+    }
+
+    /*
+     * A normalized logical route may contain methods contributed
+     * by more than one mod/provider.
+     *
+     * Example:
+     *
+     * Nether Quartz Ore -> Quartz
+     *
+     * Methods:
+     *   Minecraft Smelting
+     *   Minecraft Blasting
+     *   Create Bulk Blasting
+     *
+     * That route therefore belongs in BOTH the Minecraft and
+     * Create Recipe Source filters.
+     */
+    public static boolean routeMatchesSource(
+            CraftScopeProductionRoute route,
+            String sourceModId
+    ) {
+        if (route == null) {
+            return false;
+        }
+
+        if (sourceModId == null
+                || sourceModId.isBlank()) {
+
+            return true;
+        }
+
+        if (sourceModId.equals(
+                route.sourceModId()
+        )) {
+
+            return true;
+        }
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeProductionMethod method :
+                    step.methods()) {
+
+                if (sourceModId.equals(
+                        method.sourceModId()
+                )) {
+
+                    return true;
+                }
             }
         }
 

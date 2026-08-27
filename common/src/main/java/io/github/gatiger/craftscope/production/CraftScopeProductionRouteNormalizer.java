@@ -15,21 +15,24 @@ import java.util.Set;
  * Converts raw provider routes into the logical routes that
  * should be presented to the player.
  *
- * Initial responsibilities:
+ * Responsibilities:
  *
- * 1. Combine equivalent ore variants.
+ * 1. Combine equivalent resource variants.
  *
  *    Iron Ore
  *    Deepslate Iron Ore
  *
  *    become one input group.
  *
- * 2. Combine equivalent processing methods.
+ * 2. Combine equivalent processing methods, even when the
+ *    methods are supplied by different providers/mods.
  *
  *    Smelting
  *    Blasting
+ *    Create Bulk Blasting
  *
- *    become alternative methods on one production step.
+ *    can become alternative methods on one production step when
+ *    they represent the same material transformation.
  *
  * 3. Keep materially different paths separate.
  *
@@ -38,6 +41,14 @@ import java.util.Set;
  *    Iron Nuggets
  *
  *    remain distinct production routes.
+ *
+ * 4. Keep routes with materially different output sets separate.
+ *
+ *    This is important for processes such as crushing where two
+ *    methods may accept the same input and produce the same target
+ *    item but differ in secondary/chance outputs. CraftScope's
+ *    current method model does not yet store method-specific
+ *    outputs, so those routes must not be collapsed together.
  */
 public final class CraftScopeProductionRouteNormalizer {
 
@@ -66,51 +77,37 @@ public final class CraftScopeProductionRouteNormalizer {
             /*
              * Multi-step routes are already meaningful process
              * chains. Do not attempt to merge their internal
-             * structure with this simple normalizer.
-             *
-             * Create/Mekanism providers can eventually produce
-             * multi-step routes directly.
+             * structure with this one-step normalizer.
              */
             if (route.steps().size() != 1) {
 
-                result.add(
-                        route
-                );
-
+                result.add(route);
                 continue;
             }
 
             String mergeKey =
-                    buildMergeKey(
-                            route
-                    );
+                    buildMergeKey(route);
 
             mergeGroups
                     .computeIfAbsent(
                             mergeKey,
-                            ignored ->
-                                    new ArrayList<>()
+                            ignored -> new ArrayList<>()
                     )
-                    .add(
-                            route
-                    );
+                    .add(route);
         }
 
         for (List<CraftScopeProductionRoute> group :
                 mergeGroups.values()) {
 
             result.add(
-                    mergeGroup(
-                            group
-                    )
+                    mergeGroup(group)
             );
         }
 
         result.sort(
                 Comparator
                         .comparingInt(
-                                CraftScopeProductionRoute
-                                        ::priority
+                                CraftScopeProductionRoute::priority
                         )
                         .reversed()
                         .thenComparing(
@@ -133,11 +130,21 @@ public final class CraftScopeProductionRouteNormalizer {
                         )
         );
 
-        return List.copyOf(
-                result
-        );
+        return List.copyOf(result);
     }
 
+    /*
+     * Deliberately does NOT include route.sourceModId().
+     *
+     * The material route and the processing method are different
+     * concepts. If Minecraft smelting and Create bulk blasting
+     * perform the same transformation, Recipe Tree should show one
+     * material route while Process Diagram exposes both methods.
+     *
+     * The full output signature IS included so methods with
+     * different byproducts/chances do not get merged until
+     * CraftScope can model method-specific outputs.
+     */
     private static String buildMergeKey(
             CraftScopeProductionRoute route
     ) {
@@ -153,25 +160,37 @@ public final class CraftScopeProductionRouteNormalizer {
                 step.inputs()) {
 
             inputKeys.add(
-                    buildLogicalResourceKey(
-                            input
-                    )
+                    buildLogicalResourceKey(input)
             );
         }
 
-        inputKeys.sort(
-                String::compareTo
-        );
+        inputKeys.sort(String::compareTo);
 
-        return route.sourceModId()
-                + "|"
-                + buildLogicalResourceKey(
-                        route.targetOutput()
-                )
-                + "|"
+        List<String> outputKeys =
+                new ArrayList<>();
+
+        for (CraftScopeResourceAmount output :
+                step.outputs()) {
+
+            outputKeys.add(
+                    buildLogicalResourceKey(output)
+            );
+        }
+
+        outputKeys.sort(String::compareTo);
+
+        return buildLogicalResourceKey(
+                route.targetOutput()
+        )
+                + "|inputs="
                 + String.join(
                         ";",
                         inputKeys
+                )
+                + "|outputs="
+                + String.join(
+                        ";",
+                        outputKeys
                 );
     }
 
@@ -196,9 +215,7 @@ public final class CraftScopeProductionRouteNormalizer {
                         canonicalVariants
                 );
 
-        sorted.sort(
-                String::compareTo
-        );
+        sorted.sort(String::compareTo);
 
         return resource.kind()
                 + ":"
@@ -211,7 +228,9 @@ public final class CraftScopeProductionRouteNormalizer {
                 + ":"
                 + resource.unit()
                 + ":"
-                + resource.consumed();
+                + resource.consumed()
+                + ":chance="
+                + resource.chance();
     }
 
     /*
@@ -227,7 +246,7 @@ public final class CraftScopeProductionRouteNormalizer {
      * The same convention also works for modded ores following
      * the normal deepslate_<material>_ore naming pattern.
      *
-     * Later we can augment this with tags where useful.
+     * Later this can be augmented with tags where useful.
      */
     private static ResourceLocation canonicalizeVariant(
             ResourceLocation id
@@ -263,14 +282,12 @@ public final class CraftScopeProductionRouteNormalizer {
     private static CraftScopeProductionRoute mergeGroup(
             List<CraftScopeProductionRoute> group
     ) {
-
         CraftScopeProductionRoute representative =
                 group.stream()
                         .max(
                                 Comparator
                                         .comparingInt(
-                                                CraftScopeProductionRoute
-                                                        ::priority
+                                                CraftScopeProductionRoute::priority
                                         )
                                         .thenComparing(
                                                 route ->
@@ -287,14 +304,10 @@ public final class CraftScopeProductionRouteNormalizer {
                         .getFirst();
 
         List<CraftScopeResourceAmount> mergedInputs =
-                mergeInputs(
-                        group
-                );
+                mergeInputs(group);
 
         List<CraftScopeProductionMethod> mergedMethods =
-                mergeMethods(
-                        group
-                );
+                mergeMethods(group);
 
         Component routeName =
                 buildRouteDisplayName(
@@ -315,8 +328,7 @@ public final class CraftScopeProductionRouteNormalizer {
         int priority =
                 group.stream()
                         .mapToInt(
-                                CraftScopeProductionRoute
-                                        ::priority
+                                CraftScopeProductionRoute::priority
                         )
                         .max()
                         .orElse(
@@ -329,9 +341,7 @@ public final class CraftScopeProductionRouteNormalizer {
                 representative.sourceModName(),
                 routeName,
                 representative.targetOutput(),
-                List.of(
-                        mergedStep
-                ),
+                List.of(mergedStep),
                 priority
         );
     }
@@ -365,9 +375,7 @@ public final class CraftScopeProductionRouteNormalizer {
                                 ignored ->
                                         new ArrayList<>()
                         )
-                        .add(
-                                input
-                        );
+                        .add(input);
             }
         }
 
@@ -520,9 +528,7 @@ public final class CraftScopeProductionRouteNormalizer {
                 method.sourceModId()
         );
 
-        builder.append(
-                "|"
-        );
+        builder.append("|");
 
         builder.append(
                 method.processId()
@@ -531,17 +537,13 @@ public final class CraftScopeProductionRouteNormalizer {
         for (CraftScopeProcessRequirement requirement :
                 method.requirements()) {
 
-            builder.append(
-                    "|"
-            );
+            builder.append("|");
 
             builder.append(
                     requirement.kind()
             );
 
-            builder.append(
-                    ":"
-            );
+            builder.append(":");
 
             if (requirement.id() != null) {
 
@@ -550,17 +552,13 @@ public final class CraftScopeProductionRouteNormalizer {
                 );
             }
 
-            builder.append(
-                    ":"
-            );
+            builder.append(":");
 
             builder.append(
                     requirement.amount()
             );
 
-            builder.append(
-                    ":"
-            );
+            builder.append(":");
 
             builder.append(
                     requirement.unit()
@@ -654,9 +652,7 @@ public final class CraftScopeProductionRouteNormalizer {
         private void addRecipeIds(
                 List<ResourceLocation> ids
         ) {
-            recipeIds.addAll(
-                    ids
-            );
+            recipeIds.addAll(ids);
         }
 
         private CraftScopeProductionMethod build() {
