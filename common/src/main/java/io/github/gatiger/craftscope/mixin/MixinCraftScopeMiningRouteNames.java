@@ -28,26 +28,48 @@ public abstract class MixinCraftScopeMiningRouteNames {
     ) {
         if (representative == null
                 || representative.steps().size() != 1) {
+
             return;
         }
 
         CraftScopeProductionStep step =
-                representative.steps().getFirst();
+                representative
+                        .steps()
+                        .getFirst();
 
         CraftScopeProductionMethod method =
                 step.getPrimaryMethod();
 
-        if (method == null || method.processId() == null) {
+        if (method == null
+                || method.processId() == null) {
+
             return;
         }
 
-        String processId = method.processId().toString();
+        String processId =
+                method.processId()
+                        .toString();
+
+        boolean mobDrop =
+                "craftscope".equals(
+                        method.processId()
+                                .getNamespace()
+                )
+                        && method.processId()
+                        .getPath()
+                        .startsWith(
+                                "mob_drop/"
+                        );
 
         if ("craftscope:mining".equals(processId)
                 || "craftscope:digging".equals(processId)
                 || "craftscope:breaking".equals(processId)
-                || "craftscope:farming".equals(processId)) {
-            cir.setReturnValue(representative.displayName());
+                || "craftscope:farming".equals(processId)
+                || mobDrop) {
+
+            cir.setReturnValue(
+                    representative.displayName()
+            );
         }
     }
 }

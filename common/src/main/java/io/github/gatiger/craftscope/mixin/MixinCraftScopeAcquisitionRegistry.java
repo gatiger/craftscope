@@ -3,6 +3,7 @@ package io.github.gatiger.craftscope.mixin;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteRegistry;
 import io.github.gatiger.craftscope.production.CraftScopeVanillaAcquisitionRouteProvider;
 import io.github.gatiger.craftscope.production.CraftScopeVanillaFarmingRouteProvider;
+import io.github.gatiger.craftscope.production.CraftScopeVanillaMobDropRouteProvider;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -24,6 +25,10 @@ public abstract class MixinCraftScopeAcquisitionRegistry {
 
         CraftScopeProductionRouteRegistry.register(
                 new CraftScopeVanillaFarmingRouteProvider()
+        );
+
+        CraftScopeProductionRouteRegistry.register(
+                new CraftScopeVanillaMobDropRouteProvider()
         );
     }
 }
