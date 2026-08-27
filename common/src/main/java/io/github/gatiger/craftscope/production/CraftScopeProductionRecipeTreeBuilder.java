@@ -453,6 +453,23 @@ public final class CraftScopeProductionRecipeTreeBuilder {
      * That route therefore belongs in BOTH the Minecraft and
      * Create Recipe Source filters.
      */
+    /*
+     * Recipe Source means "which mod supplies a usable recipe or
+     * production method for this target?", not "which generic
+     * CraftScope provider happened to discover it?".
+     *
+     * This distinction matters for ordinary crafting recipes added
+     * by mods. A Create Smart Chute is a normal Minecraft crafting
+     * recipe type, so the vanilla provider discovers it, but the
+     * loaded recipe ID is create:smart_chute. Recipe Source should
+     * therefore show Create rather than Minecraft.
+     *
+     * Synthetic/non-vanilla processing methods still contribute
+     * their method source. Example: Create Bulk Blasting may reuse
+     * a minecraft:* smelting recipe, so that logical route belongs
+     * to both Minecraft (recipe owner) and Create (processing
+     * method provider).
+     */
     public static boolean routeMatchesSource(
             CraftScopeProductionRoute route,
             String sourceModId
@@ -467,12 +484,48 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             return true;
         }
 
-        if (sourceModId.equals(
-                route.sourceModId()
-        )) {
+        return getRecipeSourceIds(
+                route
+        ).contains(
+                sourceModId
+        );
+    }
 
-            return true;
+    /*
+     * Returns every source that should appear in Recipe Source for
+     * one logical production route.
+     *
+     * Priority of evidence:
+     *
+     * 1. Recipe ID namespace = owner of an actual loaded recipe.
+     *    create:smart_chute -> Create
+     *    minecraft:quartz -> Minecraft
+     *
+     * 2. A non-Minecraft method source also counts because mods can
+     *    add synthetic/alternate processing methods over another
+     *    mod's recipe data (Create Bulk Blasting is the current
+     *    example).
+     *
+     * 3. If a provider exposes a route without recipe IDs, fall
+     *    back to its route/method source.
+     *
+     * Minecraft is deliberately NOT added merely because the
+     * process is generic Crafting/Smelting/Blasting. Otherwise
+     * every mod-defined shaped recipe would incorrectly appear
+     * under Minecraft.
+     */
+    public static Set<String> getRecipeSourceIds(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null) {
+            return Set.of();
         }
+
+        Set<String> result =
+                new LinkedHashSet<>();
+
+        boolean foundRecipeId =
+                false;
 
         for (CraftScopeProductionStep step :
                 route.steps()) {
@@ -480,16 +533,82 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             for (CraftScopeProductionMethod method :
                     step.methods()) {
 
-                if (sourceModId.equals(
-                        method.sourceModId()
+                for (ResourceLocation recipeId :
+                        method.recipeIds()) {
+
+                    if (recipeId == null) {
+                        continue;
+                    }
+
+                    String namespace =
+                            recipeId.getNamespace();
+
+                    if (namespace == null
+                            || namespace.isBlank()) {
+
+                        continue;
+                    }
+
+                    foundRecipeId = true;
+
+                    result.add(
+                            namespace
+                    );
+                }
+
+                String methodSource =
+                        method.sourceModId();
+
+                if (methodSource == null
+                        || methodSource.isBlank()) {
+
+                    continue;
+                }
+
+                /*
+                 * Non-Minecraft methods represent an actual modded
+                 * production capability and should be selectable
+                 * even when they reuse another mod's recipe ID.
+                 *
+                 * Minecraft methods are generic recipe machinery,
+                 * so only count Minecraft through a minecraft:*
+                 * recipe ID (or through the no-ID fallback below).
+                 */
+                if (!"minecraft".equals(
+                        methodSource
                 )) {
 
-                    return true;
+                    result.add(
+                            methodSource
+                    );
+
+                } else if (method.recipeIds().isEmpty()) {
+
+                    result.add(
+                            methodSource
+                    );
                 }
             }
         }
 
-        return false;
+        if (!foundRecipeId
+                && result.isEmpty()) {
+
+            String routeSource =
+                    route.sourceModId();
+
+            if (routeSource != null
+                    && !routeSource.isBlank()) {
+
+                result.add(
+                        routeSource
+                );
+            }
+        }
+
+        return Set.copyOf(
+                result
+        );
     }
 
     private static boolean routeUsesActivePathItem(

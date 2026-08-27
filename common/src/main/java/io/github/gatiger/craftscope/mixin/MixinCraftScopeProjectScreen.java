@@ -1,10 +1,8 @@
 package io.github.gatiger.craftscope.mixin;
 
 import io.github.gatiger.craftscope.CraftScopeProjectScreen;
-import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
-import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
 import io.github.gatiger.craftscope.recipe.CraftScopeProductionRecipeTreeBuilder;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
 import io.github.gatiger.craftscope.ui.CraftScopeRecipeSourceUiModel.Accumulator;
@@ -732,80 +730,45 @@ public abstract class MixinCraftScopeProjectScreen {
             }
 
             Set<String> routeSources =
-                    new LinkedHashSet<>();
+                    CraftScopeProductionRecipeTreeBuilder
+                            .getRecipeSourceIds(
+                                    route
+                            );
 
-            String routeSource =
-                    route.sourceModId();
+            for (String sourceId :
+                    routeSources) {
 
-            if (routeSource != null
-                    && !routeSource.isBlank()) {
+                if (sourceId == null
+                        || sourceId.isBlank()) {
 
-                routeSources.add(
-                        routeSource
-                );
+                    continue;
+                }
 
                 Accumulator accumulator =
                         sources.computeIfAbsent(
-                                routeSource,
+                                sourceId,
                                 ignored ->
                                         new Accumulator(
-                                                routeSource,
-                                                craftscope$displayNameForRouteSource(
-                                                        route
+                                                sourceId,
+                                                craftscope$getRecipeSourceDisplayName(
+                                                        route,
+                                                        sourceId
                                                 )
                                         )
                         );
 
                 accumulator.setDisplayNameIfBetter(
-                        craftscope$displayNameForRouteSource(
-                                route
+                        craftscope$getRecipeSourceDisplayName(
+                                route,
+                                sourceId
                         )
                 );
-            }
 
-            for (CraftScopeProductionStep step :
-                    route.steps()) {
-
-                for (CraftScopeProductionMethod method :
-                        step.methods()) {
-
-                    String methodSource =
-                            method.sourceModId();
-
-                    if (methodSource == null
-                            || methodSource.isBlank()) {
-
-                        continue;
-                    }
-
-                    routeSources.add(
-                            methodSource
-                    );
-
-                    sources.computeIfAbsent(
-                            methodSource,
-                            ignored ->
-                                    new Accumulator(
-                                            methodSource,
-                                            craftscope$formatModId(
-                                                    methodSource
-                                            )
-                                    )
-                    );
-                }
-            }
-
-            for (String sourceId :
-                    routeSources) {
-
-                Accumulator accumulator =
-                        sources.get(
-                                sourceId
-                        );
-
-                if (accumulator != null) {
-                    accumulator.increment();
-                }
+                /*
+                 * Count this logical route once for each source
+                 * that can supply it.
+                 */
+                accumulator.increment();
             }
         }
 
@@ -864,6 +827,43 @@ public abstract class MixinCraftScopeProjectScreen {
 
         craftscope$clampSourceScroll(
                 layout
+        );
+    }
+
+    /*
+     * Prefer the route's real display name when its declared source
+     * matches the Recipe Source ID. Otherwise format the recipe or
+     * method namespace into a readable fallback.
+     *
+     * A future platform metadata bridge can replace this fallback
+     * with the installed mod's official display name.
+     */
+    @Unique
+    private String craftscope$getRecipeSourceDisplayName(
+            CraftScopeProductionRoute route,
+            String sourceId
+    ) {
+        if (route != null
+                && sourceId != null
+                && sourceId.equals(
+                        route.sourceModId()
+                )
+                && route.sourceModName() != null) {
+
+            String routeName =
+                    route
+                            .sourceModName()
+                            .getString();
+
+            if (routeName != null
+                    && !routeName.isBlank()) {
+
+                return routeName;
+            }
+        }
+
+        return craftscope$formatModId(
+                sourceId
         );
     }
 
