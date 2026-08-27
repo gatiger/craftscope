@@ -1,5 +1,6 @@
 package io.github.gatiger.craftscope.recipe;
 
+import io.github.gatiger.craftscope.production.CraftScopeChancePlanner;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
@@ -190,22 +191,28 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             );
         }
 
-        long outputPerRun =
-                Math.max(
-                        1L,
-                        selectedRoute
-                                .targetOutput()
-                                .amount()
-                );
-
+        /*
+         * Chance-aware planning is centralized in the production
+         * layer. A 25% output no longer behaves like one guaranteed
+         * item per run: Recipe Tree plans enough attempts for the
+         * expected output to meet the requested quantity.
+         */
         long runs =
-                ceilDiv(
+                CraftScopeChancePlanner.requiredRuns(
+                        selectedRoute,
                         Math.max(
                                 1L,
                                 requestedCount
-                        ),
-                        outputPerRun
+                        )
                 );
+
+        if (runs == Long.MAX_VALUE) {
+            return createLeaf(
+                    stack,
+                    requestedCount,
+                    acceptedVariants
+            );
+        }
 
         ResourceLocation preferredChoiceId =
                 getRouteChoiceId(

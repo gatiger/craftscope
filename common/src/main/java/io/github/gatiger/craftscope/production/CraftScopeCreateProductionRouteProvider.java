@@ -263,10 +263,9 @@ public final class CraftScopeCreateProductionRouteProvider
      *       ↓
      * Precision Mechanism
      *
-     * The output chance is preserved on the route. Recipe Tree
-     * still treats one completed assembly as one production run;
-     * expected-value quantity planning for chance outputs will be
-     * a separate planner improvement.
+     * The output chance is preserved on the route. Recipe Tree,
+     * Process Diagram, Setup, and multi-step expansion now share
+     * CraftScopeChancePlanner for expected-value quantity planning.
      */
     private static void collectSequencedAssemblyRoutes(
             ItemStack target,
@@ -846,6 +845,64 @@ public final class CraftScopeCreateProductionRouteProvider
         );
     }
 
+    private static String buildChanceAwareProcessName(
+            String processName,
+            double chance
+    ) {
+        String base =
+                processName == null
+                        || processName.isBlank()
+                        ? "Processing"
+                        : processName;
+
+        double normalizedChance =
+                clampChance(
+                        chance
+                );
+
+        if (normalizedChance >= 0.999999D) {
+            return base;
+        }
+
+        double percent =
+                normalizedChance
+                        * 100.0D;
+
+        String percentText;
+
+        if (Math.abs(
+                percent - Math.rint(percent)
+        ) < 0.000001D) {
+
+            percentText =
+                    Long.toString(
+                            Math.round(percent)
+                    );
+
+        } else {
+
+            percentText =
+                    String.format(
+                            java.util.Locale.ROOT,
+                            "%.2f",
+                            percent
+                    )
+                            .replaceAll(
+                                    "0+$",
+                                    ""
+                            )
+                            .replaceAll(
+                                    "\\.$",
+                                    ""
+                            );
+        }
+
+        return base
+                + " ("
+                + percentText
+                + "% target chance)";
+    }
+
     private static String buildSequencedDisplayName(
             int loops,
             double chance
@@ -1083,8 +1140,13 @@ public final class CraftScopeCreateProductionRouteProvider
                 continue;
             }
 
-            List<GuaranteedOutput> outputs =
-                    getGuaranteedOutputs(
+            /*
+             * Preserve BOTH guaranteed and probabilistic item
+             * outputs. CraftScopeChancePlanner handles expected-value
+             * quantity planning for the selected target.
+             */
+            List<ProcessingOutput> outputs =
+                    getProcessingOutputs(
                             recipe,
                             registryAccess
                     );
@@ -1093,7 +1155,7 @@ public final class CraftScopeCreateProductionRouteProvider
                 continue;
             }
 
-            GuaranteedOutput targetOutput =
+            ProcessingOutput targetOutput =
                     findTargetOutput(
                             outputs,
                             target
@@ -1106,7 +1168,7 @@ public final class CraftScopeCreateProductionRouteProvider
             List<CraftScopeResourceAmount> stepOutputs =
                     new ArrayList<>();
 
-            for (GuaranteedOutput output : outputs) {
+            for (ProcessingOutput output : outputs) {
                 stepOutputs.add(
                         toResource(
                                 output
@@ -1117,6 +1179,12 @@ public final class CraftScopeCreateProductionRouteProvider
             CraftScopeResourceAmount routeOutput =
                     toResource(
                             targetOutput
+                    );
+
+            String routeDisplayName =
+                    buildChanceAwareProcessName(
+                            process.displayName(),
+                            targetOutput.chance()
                     );
 
             List<CraftScopeProductionMethod> methods =
@@ -1132,7 +1200,7 @@ public final class CraftScopeCreateProductionRouteProvider
                                     holder.id()
                             ),
                             Component.literal(
-                                    process.displayName()
+                                    routeDisplayName
                             ),
                             inputs,
                             stepOutputs,
@@ -1149,7 +1217,7 @@ public final class CraftScopeCreateProductionRouteProvider
                             SOURCE_MOD_ID,
                             SOURCE_MOD_NAME,
                             Component.literal(
-                                    process.displayName()
+                                    routeDisplayName
                             ),
                             routeOutput,
                             List.of(
@@ -1263,7 +1331,7 @@ public final class CraftScopeCreateProductionRouteProvider
     }
 
     private static CraftScopeResourceAmount toResource(
-            GuaranteedOutput output
+            ProcessingOutput output
     ) {
         return new CraftScopeResourceAmount(
                 CraftScopeResourceKind.ITEM,
@@ -1275,7 +1343,9 @@ public final class CraftScopeCreateProductionRouteProvider
                         .getCount(),
                 "",
                 false,
-                1.0,
+                clampChance(
+                        output.chance()
+                ),
                 List.of(
                         output.id()
                 )
@@ -1421,16 +1491,22 @@ public final class CraftScopeCreateProductionRouteProvider
      * Create ProcessingOutput exposes public getStack() and
      * getChance() methods. We read those without importing Create.
      *
-     * This first provider milestone only accepts guaranteed
-     * outputs. Chance/expected-value planning will be added later
-     * so random byproducts are never silently overstated.
+     * Every positive-probability item output is preserved. The
+     * production model stores the chance on CraftScopeResourceAmount
+     * and CraftScopeChancePlanner converts that into expected-value
+     * run counts.
+     *
+     * Outputs for the same item are grouped ONLY when they share the
+     * same probability. Two separate rolls for the same item at
+     * different chances must remain distinct or their expected yield
+     * would be misrepresented.
      */
-    private static List<GuaranteedOutput> getGuaranteedOutputs(
+    private static List<ProcessingOutput> getProcessingOutputs(
             Recipe<?> recipe,
             RegistryAccess registryAccess
     ) {
         ReflectionResult reflected =
-                getGuaranteedOutputsReflectively(
+                getProcessingOutputsReflectively(
                         recipe
                 );
 
@@ -1440,7 +1516,8 @@ public final class CraftScopeCreateProductionRouteProvider
 
         /*
          * Fallback for a compatible custom recipe implementation
-         * that does not expose Create's rollable-result API.
+         * that does not expose Create's rollable-result API. The
+         * normal recipe result is deterministic.
          */
         ItemStack result =
                 recipe.getResultItem(
@@ -1457,15 +1534,16 @@ public final class CraftScopeCreateProductionRouteProvider
                 );
 
         return List.of(
-                new GuaranteedOutput(
+                new ProcessingOutput(
                         id,
-                        result.copy()
+                        result.copy(),
+                        1.0D
                 )
         );
     }
 
     private static ReflectionResult
-    getGuaranteedOutputsReflectively(
+    getProcessingOutputsReflectively(
             Recipe<?> recipe
     ) {
         try {
@@ -1488,7 +1566,7 @@ public final class CraftScopeCreateProductionRouteProvider
                 );
             }
 
-            Map<ResourceLocation, ItemStack> grouped =
+            Map<OutputKey, ItemStack> grouped =
                     new LinkedHashMap<>();
 
             for (Object output : iterable) {
@@ -1527,10 +1605,12 @@ public final class CraftScopeCreateProductionRouteProvider
 
                 double chance =
                         chanceValue instanceof Number number
-                                ? number.doubleValue()
-                                : 0.0;
+                                ? clampChance(
+                                number.doubleValue()
+                        )
+                                : 0.0D;
 
-                if (chance < 0.999999) {
+                if (chance <= 0.0D) {
                     continue;
                 }
 
@@ -1539,12 +1619,20 @@ public final class CraftScopeCreateProductionRouteProvider
                                 stack.getItem()
                         );
 
+                OutputKey key =
+                        new OutputKey(
+                                id,
+                                Double.doubleToLongBits(
+                                        chance
+                                )
+                        );
+
                 ItemStack existing =
-                        grouped.get(id);
+                        grouped.get(key);
 
                 if (existing == null) {
                     grouped.put(
-                            id,
+                            key,
                             stack.copy()
                     );
                 } else {
@@ -1559,22 +1647,25 @@ public final class CraftScopeCreateProductionRouteProvider
                     );
 
                     grouped.put(
-                            id,
+                            key,
                             combined
                     );
                 }
             }
 
-            List<GuaranteedOutput> result =
+            List<ProcessingOutput> result =
                     new ArrayList<>();
 
-            for (Map.Entry<ResourceLocation, ItemStack> entry :
+            for (Map.Entry<OutputKey, ItemStack> entry :
                     grouped.entrySet()) {
 
                 result.add(
-                        new GuaranteedOutput(
-                                entry.getKey(),
-                                entry.getValue()
+                        new ProcessingOutput(
+                                entry.getKey().id(),
+                                entry.getValue(),
+                                Double.longBitsToDouble(
+                                        entry.getKey().chanceBits()
+                                )
                         )
                 );
             }
@@ -1595,8 +1686,8 @@ public final class CraftScopeCreateProductionRouteProvider
 
             /*
              * The API shape was recognized but could not be read.
-             * Be conservative and expose no outputs rather than
-             * guessing that a chance output is guaranteed.
+             * Be conservative and expose no outputs instead of
+             * fabricating probabilities.
              */
             return new ReflectionResult(
                     true,
@@ -1657,20 +1748,40 @@ public final class CraftScopeCreateProductionRouteProvider
         }
     }
 
-    private static GuaranteedOutput findTargetOutput(
-            List<GuaranteedOutput> outputs,
+    private static ProcessingOutput findTargetOutput(
+            List<ProcessingOutput> outputs,
             ItemStack target
     ) {
-        for (GuaranteedOutput output : outputs) {
-            if (ItemStack.isSameItem(
+        ProcessingOutput best =
+                null;
+
+        double bestExpected =
+                -1.0D;
+
+        for (ProcessingOutput output : outputs) {
+            if (!ItemStack.isSameItem(
                     output.stack(),
                     target
             )) {
-                return output;
+                continue;
+            }
+
+            double expected =
+                    output.stack().getCount()
+                            * output.chance();
+
+            if (best == null
+                    || expected > bestExpected) {
+
+                best =
+                        output;
+
+                bestExpected =
+                        expected;
             }
         }
 
-        return null;
+        return best;
     }
 
     @SuppressWarnings({
@@ -1823,9 +1934,32 @@ public final class CraftScopeCreateProductionRouteProvider
         }
     }
 
-    private record GuaranteedOutput(
+    private record ProcessingOutput(
             ResourceLocation id,
-            ItemStack stack
+            ItemStack stack,
+            double chance
+    ) {
+        private ProcessingOutput {
+            chance =
+                    clampChance(
+                            chance
+                    );
+
+            stack =
+                    stack == null
+                            ? ItemStack.EMPTY
+                            : stack.copy();
+        }
+
+        @Override
+        public ItemStack stack() {
+            return stack.copy();
+        }
+    }
+
+    private record OutputKey(
+            ResourceLocation id,
+            long chanceBits
     ) {
     }
 
@@ -1897,7 +2031,7 @@ public final class CraftScopeCreateProductionRouteProvider
 
     private record ReflectionResult(
             boolean supported,
-            List<GuaranteedOutput> outputs
+            List<ProcessingOutput> outputs
     ) {
         private ReflectionResult {
             outputs =

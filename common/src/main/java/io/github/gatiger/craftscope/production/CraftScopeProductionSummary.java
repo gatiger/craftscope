@@ -68,23 +68,26 @@ public record CraftScopeProductionSummary(
             return empty();
         }
 
-        long outputPerRun =
-                Math.max(
-                        1,
-                        route.targetOutput().amount()
-                );
-
         long requested =
                 Math.max(
                         1,
                         requestedTargetCount
                 );
 
+        /*
+         * Route runs are based on expected target yield. Guaranteed
+         * outputs still use ordinary integer recipe math, while
+         * probabilistic outputs scale the required attempts.
+         */
         long runs =
-                ceilDiv(
-                        requested,
-                        outputPerRun
+                CraftScopeChancePlanner.requiredRuns(
+                        route,
+                        requested
                 );
+
+        if (runs == Long.MAX_VALUE) {
+            return empty();
+        }
 
         Map<String, RequirementAccumulator> machines =
                 new LinkedHashMap<>();
@@ -619,11 +622,23 @@ public record CraftScopeProductionSummary(
             );
         }
 
+        /*
+         * Chance is part of output identity for aggregation.
+         *
+         * Example: one recipe may contain two rolls for the same
+         * item at different probabilities. Merging those into one
+         * ResourceAccumulator would attach one probability to a
+         * mixed amount and misstate the expected yield.
+         */
         return resource.kind()
                 + "|"
                 + String.join(",", variants)
                 + "|"
-                + resource.unit();
+                + resource.unit()
+                + "|chance="
+                + Double.toHexString(
+                        resource.chance()
+                );
     }
 
     private static CraftScopeResourceAmount copyResource(

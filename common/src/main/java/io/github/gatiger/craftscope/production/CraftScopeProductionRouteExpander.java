@@ -204,25 +204,27 @@ public final class CraftScopeProductionRouteExpander {
             return unchanged(route);
         }
 
-        long outputPerRun =
-                Math.max(
-                        1,
-                        upstreamRoute
-                                .targetOutput()
-                                .amount()
-                );
-
         long requiredAmount =
                 Math.max(
                         1,
                         expandableInput.amount()
                 );
 
+        /*
+         * An upstream chance route must be attempted enough times
+         * to supply the expected quantity required by the next
+         * step. This keeps multi-step expansion consistent with
+         * Recipe Tree and Production Summary.
+         */
         long upstreamRuns =
-                ceilDiv(
-                        requiredAmount,
-                        outputPerRun
+                CraftScopeChancePlanner.requiredRuns(
+                        upstreamRoute,
+                        requiredAmount
                 );
+
+        if (upstreamRuns == Long.MAX_VALUE) {
+            return unchanged(route);
+        }
 
         Expansion upstreamExpansion =
                 expandInternal(

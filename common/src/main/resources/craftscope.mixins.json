@@ -11,6 +11,9 @@
     "MixinCraftScopeProjectScreen",
     "MixinCraftScopeScrollableOverflow",
     "MixinCraftScopeScrollableDetails",
+    "MixinCraftScopeChanceUi",
+    "MixinCraftScopeAcquisitionRegistry",
+    "MixinCraftScopeProcessDiagramResourceCycle",
     "ScreenAccessor",
     "ScreenChildrenAccessor",
     "AbstractContainerScreenAccessor"
