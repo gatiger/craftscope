@@ -3,6 +3,7 @@ package io.github.gatiger.craftscope.mixin;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
 import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 import org.spongepowered.asm.mixin.Mixin;
+import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -10,13 +11,18 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.util.Locale;
 
 /*
- * Show a real min-max range on Process Diagram resource nodes.
+ * Show real min-max ranges on Process Diagram resource nodes.
  *
- * Example:
- *   x4-5 ≈4.5
+ * Supports zero-minimum byproducts such as Beetroot Seeds:
  *
- * After multiple planned runs:
- *   x60-75 ≈67.5
+ *   x0-3 ≈1.5
+ *
+ * amount is the resource's stable scaling unit. This avoids
+ * dividing by minimumAmount when the legitimate minimum is zero.
+ *
+ * Helper methods are @Unique and use the craftscope$ prefix so they
+ * can never collide with similarly named methods that already exist
+ * in CraftScopeProcessDiagramRenderer.
  */
 @Mixin(CraftScopeProcessDiagramRenderer.class)
 public abstract class MixinCraftScopeVariableYieldDiagramUi {
@@ -33,7 +39,7 @@ public abstract class MixinCraftScopeVariableYieldDiagramUi {
     ) {
         if (resource == null
                 || !resource.hasVariableRange()
-                || resource.minimumAmount() <= 0L) {
+                || resource.amount() <= 0L) {
 
             return;
         }
@@ -41,17 +47,20 @@ public abstract class MixinCraftScopeVariableYieldDiagramUi {
         long runs =
                 Math.max(
                         1L,
-                        amount
-                                / resource.minimumAmount()
+                        amount / resource.amount()
                 );
 
         long minimum =
-                resource.minimumAmount()
-                        * runs;
+                craftscope$safeMultiply(
+                        resource.minimumAmount(),
+                        runs
+                );
 
         long maximum =
-                resource.maximumAmount()
-                        * runs;
+                craftscope$safeMultiply(
+                        resource.maximumAmount(),
+                        runs
+                );
 
         double expected =
                 resource.expectedAmount()
@@ -69,11 +78,30 @@ public abstract class MixinCraftScopeVariableYieldDiagramUi {
         );
     }
 
+    @Unique
+    private static long craftscope$safeMultiply(
+            long left,
+            long right
+    ) {
+        if (left <= 0L || right <= 0L) {
+            return 0L;
+        }
+
+        if (left > Long.MAX_VALUE / right) {
+            return Long.MAX_VALUE;
+        }
+
+        return left * right;
+    }
+
+    @Unique
     private static String craftscope$formatNumber(
             double value
     ) {
         double nearestInteger =
-                Math.rint(value);
+                Math.rint(
+                        value
+                );
 
         if (Math.abs(
                 value - nearestInteger

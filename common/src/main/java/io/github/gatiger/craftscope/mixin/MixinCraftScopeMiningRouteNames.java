@@ -13,10 +13,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
 
-/*
- * Keep acquisition route names descriptive instead of allowing
- * the generic ore-processing normalizer to rename them.
- */
 @Mixin(CraftScopeProductionRouteNormalizer.class)
 public abstract class MixinCraftScopeMiningRouteNames {
 
@@ -32,35 +28,26 @@ public abstract class MixinCraftScopeMiningRouteNames {
     ) {
         if (representative == null
                 || representative.steps().size() != 1) {
-
             return;
         }
 
         CraftScopeProductionStep step =
-                representative
-                        .steps()
-                        .getFirst();
+                representative.steps().getFirst();
 
         CraftScopeProductionMethod method =
                 step.getPrimaryMethod();
 
-        if (method == null
-                || method.processId() == null) {
-
+        if (method == null || method.processId() == null) {
             return;
         }
 
-        String processId =
-                method.processId()
-                        .toString();
+        String processId = method.processId().toString();
 
         if ("craftscope:mining".equals(processId)
                 || "craftscope:digging".equals(processId)
-                || "craftscope:breaking".equals(processId)) {
-
-            cir.setReturnValue(
-                    representative.displayName()
-            );
+                || "craftscope:breaking".equals(processId)
+                || "craftscope:farming".equals(processId)) {
+            cir.setReturnValue(representative.displayName());
         }
     }
 }

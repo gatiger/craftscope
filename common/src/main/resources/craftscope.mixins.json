@@ -16,6 +16,8 @@
     "MixinCraftScopeProcessDiagramResourceCycle",
     "MixinCraftScopeMiningRouteNames",
     "MixinCraftScopeMiningProcessIcon",
+    "MixinCraftScopeFarmingRecipeTree",
+    "MixinCraftScopeFarmingProcessIcon",
     "MixinCraftScopeYieldSummary",
     "MixinCraftScopeYieldNormalization",
     "MixinCraftScopeVariableYieldDiagramUi",
