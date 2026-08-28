@@ -149,19 +149,48 @@ public final class CraftScopeMobLootTableScanner {
                 result.serializationFailures()
         );
 
+        /*
+         * Convert only specifically understood conditional
+         * furnace-smelt functions into CraftScope transformation
+         * metadata before the conservative interpreter sees them.
+         */
+        CraftScopeMobLootFurnaceSmeltProcessor.PreparedScan
+                prepared =
+                CraftScopeMobLootFurnaceSmeltProcessor.prepare(
+                        result,
+                        server.getRecipeManager(),
+                        server.registryAccess()
+                );
+
+        Constants.LOG.info(
+                "CraftScope furnace-smelt preprocessing: {} transformations resolved",
+                prepared.transformationCount()
+        );
+
         CraftScopeMobLootTableInterpreter.InterpretationResult
                 interpretation =
                 CraftScopeMobLootTableInterpreter.interpret(
-                        result
+                        prepared.scanResult()
                 );
 
+        interpretation =
+                CraftScopeMobLootFurnaceSmeltProcessor
+                        .applyTransformations(
+                                interpretation,
+                                prepared
+                        );
+
         /*
-         * Atomically replace the previous server discovery snapshot.
+         * Diagnostics run against the PREPARED data.
          *
-         * This is especially important following /reload. Definitions
-         * that disappeared or became unsupported must not remain
-         * cached from the previous datapack state.
+         * Therefore furnace-smelt cases that CraftScope now understands
+         * disappear from the unsupported report, leaving only the
+         * structures we genuinely still need to implement.
          */
+        CraftScopeMobLootUnsupportedDiagnostics.log(
+                prepared.scanResult()
+        );
+
         CraftScopeMobDropRuntimeRegistry.replaceAll(
                 interpretation.definitions()
         );

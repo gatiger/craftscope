@@ -12,39 +12,40 @@ import java.util.Objects;
  * Shared network serialization format for CraftScope runtime
  * mob-drop definitions.
  *
- * This class deliberately contains no Fabric or NeoForge code.
+ * This class contains no Fabric- or NeoForge-specific code.
  *
- * Later:
+ * Server:
  *
- *     server loot discovery
+ *     authoritative loot discovery
  *              ↓
  *     List<MobDefinition>
  *              ↓
  *     CraftScopeMobDropRuntimeCodec
  *              ↓
  *     Fabric / NeoForge packet
- *              ↓
- *     CraftScopeMobDropRuntimeRegistry.replaceAll(...)
  *
- * Keeping the serialization in common code guarantees that both
- * loaders interpret runtime mob/drop data identically.
+ * Client:
+ *
+ *     packet
+ *              ↓
+ *     CraftScopeMobDropRuntimeCodec
+ *              ↓
+ *     CraftScopeMobDropRuntimeRegistry
  */
 public final class CraftScopeMobDropRuntimeCodec {
 
     /*
-     * Increment this only if the encoded structure changes in an
-     * incompatible way.
+     * Version 2 adds conditional drop-transformation metadata.
+     *
+     * Example:
+     *
+     * raw beef
+     *      ↓ furnace_smelt when condition is true
+     * cooked beef
      */
     private static final int FORMAT_VERSION =
-            1;
+            2;
 
-    /*
-     * Defensive limits.
-     *
-     * Runtime data can eventually originate from a multiplayer
-     * server, so malformed packets must not be allowed to allocate
-     * arbitrarily large collections.
-     */
     private static final int MAX_MOBS =
             4096;
 
@@ -67,11 +68,6 @@ public final class CraftScopeMobDropRuntimeCodec {
         return FORMAT_VERSION;
     }
 
-    /*
-     * Encode a complete runtime snapshot.
-     *
-     * Null definitions inside the supplied collection are ignored.
-     */
     public static void write(
             FriendlyByteBuf buffer,
             Collection<CraftScopeMobDropCatalog.MobDefinition> definitions
@@ -87,6 +83,7 @@ public final class CraftScopeMobDropRuntimeCodec {
                 );
 
         if (snapshot.size() > MAX_MOBS) {
+
             throw new IllegalArgumentException(
                     "Too many runtime mob definitions: "
                             + snapshot.size()
@@ -111,13 +108,6 @@ public final class CraftScopeMobDropRuntimeCodec {
         }
     }
 
-    /*
-     * Decode a complete runtime snapshot.
-     *
-     * The returned list is immutable and can be passed directly to:
-     *
-     * CraftScopeMobDropRuntimeRegistry.replaceAll(...)
-     */
     public static List<CraftScopeMobDropCatalog.MobDefinition> read(
             FriendlyByteBuf buffer
     ) {
@@ -130,6 +120,7 @@ public final class CraftScopeMobDropRuntimeCodec {
                 buffer.readInt();
 
         if (version != FORMAT_VERSION) {
+
             throw new IllegalArgumentException(
                     "Unsupported CraftScope mob-drop runtime format: "
                             + version
@@ -164,9 +155,6 @@ public final class CraftScopeMobDropRuntimeCodec {
         );
     }
 
-    /*
-     * Convenience method for the eventual client packet receiver.
-     */
     public static void readAndApply(
             FriendlyByteBuf buffer
     ) {
@@ -198,6 +186,7 @@ public final class CraftScopeMobDropRuntimeCodec {
         );
 
         if (iconItemId != null) {
+
             buffer.writeResourceLocation(
                     iconItemId
             );
@@ -215,8 +204,7 @@ public final class CraftScopeMobDropRuntimeCodec {
         List<CraftScopeMobDropCatalog.DropDefinition> drops =
                 definition.drops();
 
-        if (drops.size()
-                > MAX_DROPS_PER_MOB) {
+        if (drops.size() > MAX_DROPS_PER_MOB) {
 
             throw new IllegalArgumentException(
                     "Too many drops for entity "
@@ -256,6 +244,7 @@ public final class CraftScopeMobDropRuntimeCodec {
                 null;
 
         if (buffer.readBoolean()) {
+
             iconItemId =
                     buffer.readResourceLocation();
         }
@@ -333,6 +322,42 @@ public final class CraftScopeMobDropRuntimeCodec {
                 buffer,
                 drop.targetRequirements()
         );
+
+        /*
+         * Transformation data.
+         *
+         * false:
+         *
+         *     ordinary drop
+         *
+         * true:
+         *
+         *     this drop can become another item when its transformation
+         *     conditions are satisfied.
+         */
+        ResourceLocation transformedItemId =
+                drop.transformedItemId();
+
+        buffer.writeBoolean(
+                transformedItemId != null
+        );
+
+        if (transformedItemId != null) {
+
+            buffer.writeResourceLocation(
+                    transformedItemId
+            );
+
+            writeStrings(
+                    buffer,
+                    drop.baseTransformationRequirements()
+            );
+
+            writeStrings(
+                    buffer,
+                    drop.transformationRequirements()
+            );
+        }
     }
 
     private static CraftScopeMobDropCatalog.DropDefinition
@@ -379,6 +404,34 @@ public final class CraftScopeMobDropRuntimeCodec {
                         buffer
                 );
 
+        ResourceLocation transformedItemId =
+                null;
+
+        List<String> baseTransformationRequirements =
+                List.of();
+
+        List<String> transformationRequirements =
+                List.of();
+
+        boolean hasTransformation =
+                buffer.readBoolean();
+
+        if (hasTransformation) {
+
+            transformedItemId =
+                    buffer.readResourceLocation();
+
+            baseTransformationRequirements =
+                    readStrings(
+                            buffer
+                    );
+
+            transformationRequirements =
+                    readStrings(
+                            buffer
+                    );
+        }
+
         return new CraftScopeMobDropCatalog.DropDefinition(
                 itemId,
                 mode,
@@ -386,7 +439,10 @@ public final class CraftScopeMobDropRuntimeCodec {
                 maximum,
                 amount,
                 chance,
-                targetRequirements
+                targetRequirements,
+                transformedItemId,
+                baseTransformationRequirements,
+                transformationRequirements
         );
     }
 
@@ -399,8 +455,7 @@ public final class CraftScopeMobDropRuntimeCodec {
                         ? List.of()
                         : values;
 
-        if (safeValues.size()
-                > MAX_REQUIREMENTS) {
+        if (safeValues.size() > MAX_REQUIREMENTS) {
 
             throw new IllegalArgumentException(
                     "Too many CraftScope mob-drop requirements: "
@@ -497,6 +552,7 @@ public final class CraftScopeMobDropRuntimeCodec {
                 definitions) {
 
             if (definition != null) {
+
                 result.add(
                         definition
                 );

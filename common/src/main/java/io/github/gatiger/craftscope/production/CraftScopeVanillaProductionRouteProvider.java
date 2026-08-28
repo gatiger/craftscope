@@ -24,23 +24,19 @@ import java.util.Map;
  *
  * These are RAW routes.
  *
- * The normalization layer will later combine equivalent routes
- * such as:
+ * The normalization layer can combine equivalent routes into one
+ * logical material route while preserving each processing method.
  *
- * Iron Ore smelting
- * Deepslate Iron Ore smelting
- * Iron Ore blasting
- * Deepslate Iron Ore blasting
+ * Example:
  *
- * into:
- *
- * Any Iron Ore
+ * Raw Beef
  *      ↓
- * Iron Ingot
+ * Steak
  *
  * Methods:
  *   Smelting
- *   Blasting
+ *   Smoking
+ *   Campfire Cooking
  */
 public final class CraftScopeVanillaProductionRouteProvider
         implements CraftScopeProductionRouteProvider {
@@ -63,6 +59,16 @@ public final class CraftScopeVanillaProductionRouteProvider
                     "craftscope:blasting"
             );
 
+    private static final ResourceLocation SMOKING_PROCESS_ID =
+            requireId(
+                    "craftscope:smoking"
+            );
+
+    private static final ResourceLocation CAMPFIRE_COOKING_PROCESS_ID =
+            requireId(
+                    "craftscope:campfire_cooking"
+            );
+
     private static final ResourceLocation FURNACE_ID =
             requireId(
                     "minecraft:furnace"
@@ -73,9 +79,18 @@ public final class CraftScopeVanillaProductionRouteProvider
                     "minecraft:blast_furnace"
             );
 
+    private static final ResourceLocation SMOKER_ID =
+            requireId(
+                    "minecraft:smoker"
+            );
+
+    private static final ResourceLocation CAMPFIRE_ID =
+            requireId(
+                    "minecraft:campfire"
+            );
+
     @Override
     public String getProviderId() {
-
         return PROVIDER_ID;
     }
 
@@ -120,6 +135,24 @@ public final class CraftScopeVanillaProductionRouteProvider
                 routes
         );
 
+        collectRoutes(
+                target,
+                recipeManager,
+                registryAccess,
+                RecipeType.SMOKING,
+                VanillaProcessType.SMOKING,
+                routes
+        );
+
+        collectRoutes(
+                target,
+                recipeManager,
+                registryAccess,
+                RecipeType.CAMPFIRE_COOKING,
+                VanillaProcessType.CAMPFIRE_COOKING,
+                routes
+        );
+
         return routes;
     }
 
@@ -147,9 +180,9 @@ public final class CraftScopeVanillaProductionRouteProvider
 
             if (output.isEmpty()
                     || !ItemStack.isSameItem(
-                            output,
-                            target
-                    )) {
+                    output,
+                    target
+            )) {
 
                 continue;
             }
@@ -309,10 +342,10 @@ public final class CraftScopeVanillaProductionRouteProvider
     /*
      * Infrastructure is separate from consumable materials.
      *
-     * Fuel is deliberately NOT added.
+     * Fuel is deliberately not added here.
      *
-     * Furnace fuel is an operating requirement rather than an
-     * explicit ingredient in the smelting recipe.
+     * Fuel is an operating requirement rather than an explicit recipe
+     * ingredient in Minecraft's cooking recipes.
      */
     private static List<CraftScopeProcessRequirement>
     buildRequirements(
@@ -325,30 +358,51 @@ public final class CraftScopeVanillaProductionRouteProvider
 
             case SMELTING ->
                     List.of(
-                            new CraftScopeProcessRequirement(
-                                    CraftScopeRequirementKind.MACHINE,
+                            machineRequirement(
                                     FURNACE_ID,
-                                    Component.literal(
-                                            "Furnace"
-                                    ),
-                                    1,
-                                    ""
+                                    "Furnace"
                             )
                     );
 
             case BLASTING ->
                     List.of(
-                            new CraftScopeProcessRequirement(
-                                    CraftScopeRequirementKind.MACHINE,
+                            machineRequirement(
                                     BLAST_FURNACE_ID,
-                                    Component.literal(
-                                            "Blast Furnace"
-                                    ),
-                                    1,
-                                    ""
+                                    "Blast Furnace"
+                            )
+                    );
+
+            case SMOKING ->
+                    List.of(
+                            machineRequirement(
+                                    SMOKER_ID,
+                                    "Smoker"
+                            )
+                    );
+
+            case CAMPFIRE_COOKING ->
+                    List.of(
+                            machineRequirement(
+                                    CAMPFIRE_ID,
+                                    "Campfire"
                             )
                     );
         };
+    }
+
+    private static CraftScopeProcessRequirement machineRequirement(
+            ResourceLocation id,
+            String name
+    ) {
+        return new CraftScopeProcessRequirement(
+                CraftScopeRequirementKind.MACHINE,
+                id,
+                Component.literal(
+                        name
+                ),
+                1,
+                ""
+        );
     }
 
     private static int scoreRoute(
@@ -358,8 +412,14 @@ public final class CraftScopeVanillaProductionRouteProvider
         int score =
                 switch (processType) {
 
+                    case SMOKING ->
+                            3050;
+
                     case SMELTING ->
                             3000;
+
+                    case CAMPFIRE_COOKING ->
+                            2950;
 
                     case BLASTING ->
                             2900;
@@ -560,6 +620,18 @@ public final class CraftScopeVanillaProductionRouteProvider
                 "blasting",
                 "Blasting",
                 BLASTING_PROCESS_ID
+        ),
+
+        SMOKING(
+                "smoking",
+                "Smoking",
+                SMOKING_PROCESS_ID
+        ),
+
+        CAMPFIRE_COOKING(
+                "campfire_cooking",
+                "Campfire Cooking",
+                CAMPFIRE_COOKING_PROCESS_ID
         );
 
         private final String pathName;

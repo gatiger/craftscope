@@ -10,30 +10,40 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.SpawnEggItem;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /*
  * Converts CraftScopeMobDropCatalog entries into selectable
  * CraftScope production routes.
  *
- * Mob/drop data no longer lives in this provider. The provider only
- * translates catalog definitions into the normal CraftScope
- * production model.
+ * Mob/drop data lives in CraftScopeMobDropCatalog. This provider only
+ * translates those definitions into CraftScope's normal production
+ * model.
  *
- * Keeping this class name also preserves compatibility with the
- * existing acquisition-registration and Process Diagram icon mixins.
+ * Conditional item transformations are represented as separate kill
+ * outcomes.
+ *
+ * Example:
+ *
+ * Cow:
+ *
+ *   Normal outcome
+ *       Leather
+ *       Raw Beef
+ *
+ *   Smelted-loot outcome
+ *       Leather
+ *       Cooked Beef
+ *
+ * These are deliberately separate routes because one cow does not
+ * drop both Raw Beef and Cooked Beef at the same time.
  */
 public final class CraftScopeVanillaMobDropRouteProvider
         implements CraftScopeProductionRouteProvider {
 
-    /*
-     * Keep the existing provider ID for compatibility.
-     *
-     * Although the backing catalog can now contain runtime/modded
-     * definitions, changing the provider ID is unnecessary and could
-     * disturb code that already identifies this provider.
-     */
     private static final String PROVIDER_ID =
             "craftscope:vanilla_mob_drops";
 
@@ -64,115 +74,24 @@ public final class CraftScopeVanillaMobDropRouteProvider
         for (CraftScopeMobDropCatalog.MobDefinition definition :
                 CraftScopeMobDropCatalog.getDefinitions()) {
 
-            CraftScopeMobDropCatalog.DropDefinition targetDrop =
-                    findTargetDrop(
-                            definition,
-                            targetId
-                    );
+            addRouteIfMatching(
+                    definition,
+                    targetId,
+                    OutcomeVariant.BASE,
+                    routes
+            );
 
-            if (targetDrop == null) {
-                continue;
+            if (hasTransformation(
+                    definition
+            )) {
+
+                addRouteIfMatching(
+                        definition,
+                        targetId,
+                        OutcomeVariant.TRANSFORMED,
+                        routes
+                );
             }
-
-            List<CraftScopeResourceAmount> outputs =
-                    buildOutputs(
-                            definition
-                    );
-
-            CraftScopeResourceAmount targetOutput =
-                    findTargetOutput(
-                            outputs,
-                            targetId
-                    );
-
-            if (targetOutput == null) {
-                continue;
-            }
-
-            Component mobName =
-                    getMobDisplayName(
-                            definition
-                    );
-
-            ResourceLocation processId =
-                    getProcessId(
-                            definition
-                    );
-
-            List<CraftScopeProcessRequirement> requirements =
-                    new ArrayList<>();
-
-            requirements.add(
-                    otherRequirement(
-                            "Source mob: "
-                                    + mobName.getString()
-                    )
-            );
-
-            addRequirements(
-                    requirements,
-                    definition.requirements()
-            );
-
-            addRequirements(
-                    requirements,
-                    targetDrop.targetRequirements()
-            );
-
-            String sourceModId =
-                    definition.sourceModId();
-
-            CraftScopeProductionMethod method =
-                    new CraftScopeProductionMethod(
-                            sourceModId,
-                            processId,
-                            Component.literal(
-                                    "Kill "
-                                            + mobName.getString()
-                            ),
-                            List.of(),
-                            requirements
-                    );
-
-            CraftScopeProductionStep step =
-                    new CraftScopeProductionStep(
-                            buildStepId(
-                                    definition
-                            ),
-                            Component.literal(
-                                    "Kill "
-                                            + mobName.getString()
-                            ),
-                            List.of(),
-                            outputs,
-                            List.of(
-                                    method
-                            )
-                    );
-
-            routes.add(
-                    new CraftScopeProductionRoute(
-                            buildRouteId(
-                                    definition,
-                                    targetOutput.id()
-                            ),
-                            sourceModId,
-                            Component.literal(
-                                    formatSourceName(
-                                            sourceModId
-                                    )
-                            ),
-                            Component.literal(
-                                    mobName.getString()
-                                            + " Drops"
-                            ),
-                            targetOutput,
-                            List.of(
-                                    step
-                            ),
-                            definition.priority()
-                    )
-            );
         }
 
         return List.copyOf(
@@ -180,10 +99,146 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
+    private static void addRouteIfMatching(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            ResourceLocation targetId,
+            OutcomeVariant variant,
+            List<CraftScopeProductionRoute> routes
+    ) {
+        CraftScopeMobDropCatalog.DropDefinition targetDrop =
+                findTargetDrop(
+                        definition,
+                        targetId,
+                        variant
+                );
+
+        if (targetDrop == null) {
+            return;
+        }
+
+        List<CraftScopeResourceAmount> outputs =
+                buildOutputs(
+                        definition,
+                        variant
+                );
+
+        CraftScopeResourceAmount targetOutput =
+                findTargetOutput(
+                        outputs,
+                        targetId
+                );
+
+        if (targetOutput == null) {
+            return;
+        }
+
+        Component mobName =
+                getMobDisplayName(
+                        definition
+                );
+
+        ResourceLocation processId =
+                getProcessId(
+                        definition
+                );
+
+        List<CraftScopeProcessRequirement> requirements =
+                new ArrayList<>();
+
+        requirements.add(
+                otherRequirement(
+                        "Source mob: "
+                                + mobName.getString()
+                )
+        );
+
+        addRequirements(
+                requirements,
+                definition.requirements()
+        );
+
+        addRequirements(
+                requirements,
+                getVariantRequirements(
+                        definition,
+                        variant
+                )
+        );
+
+        addRequirements(
+                requirements,
+                targetDrop.targetRequirements()
+        );
+
+        String sourceModId =
+                definition.sourceModId();
+
+        String actionName =
+                getActionName(
+                        mobName,
+                        variant
+                );
+
+        CraftScopeProductionMethod method =
+                new CraftScopeProductionMethod(
+                        sourceModId,
+                        processId,
+                        Component.literal(
+                                actionName
+                        ),
+                        List.of(),
+                        requirements
+                );
+
+        CraftScopeProductionStep step =
+                new CraftScopeProductionStep(
+                        buildStepId(
+                                definition,
+                                variant
+                        ),
+                        Component.literal(
+                                actionName
+                        ),
+                        List.of(),
+                        outputs,
+                        List.of(
+                                method
+                        )
+                );
+
+        routes.add(
+                new CraftScopeProductionRoute(
+                        buildRouteId(
+                                definition,
+                                targetOutput.id(),
+                                variant
+                        ),
+                        sourceModId,
+                        Component.literal(
+                                formatSourceName(
+                                        sourceModId
+                                )
+                        ),
+                        Component.literal(
+                                getRouteName(
+                                        mobName,
+                                        variant
+                                )
+                        ),
+                        targetOutput,
+                        List.of(
+                                step
+                        ),
+                        definition.priority()
+                )
+        );
+    }
+
     private static CraftScopeMobDropCatalog.DropDefinition
     findTargetDrop(
             CraftScopeMobDropCatalog.MobDefinition definition,
-            ResourceLocation targetId
+            ResourceLocation targetId,
+            OutcomeVariant variant
     ) {
         if (definition == null
                 || targetId == null) {
@@ -194,8 +249,14 @@ public final class CraftScopeVanillaMobDropRouteProvider
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
 
+            ResourceLocation effectiveId =
+                    getEffectiveItemId(
+                            drop,
+                            variant
+                    );
+
             if (targetId.equals(
-                    drop.itemId()
+                    effectiveId
             )) {
 
                 return drop;
@@ -206,7 +267,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
     }
 
     private static List<CraftScopeResourceAmount> buildOutputs(
-            CraftScopeMobDropCatalog.MobDefinition definition
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            OutcomeVariant variant
     ) {
         List<CraftScopeResourceAmount> outputs =
                 new ArrayList<>();
@@ -214,12 +276,20 @@ public final class CraftScopeVanillaMobDropRouteProvider
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
 
+            ResourceLocation effectiveItemId =
+                    getEffectiveItemId(
+                            drop,
+                            variant
+                    );
+
             CraftScopeResourceAmount output =
                     buildOutput(
-                            drop
+                            drop,
+                            effectiveItemId
                     );
 
             if (output != null) {
+
                 outputs.add(
                         output
                 );
@@ -231,11 +301,29 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
+    private static ResourceLocation getEffectiveItemId(
+            CraftScopeMobDropCatalog.DropDefinition drop,
+            OutcomeVariant variant
+    ) {
+        if (drop == null) {
+            return null;
+        }
+
+        if (variant == OutcomeVariant.TRANSFORMED
+                && drop.hasTransformation()) {
+
+            return drop.transformedItemId();
+        }
+
+        return drop.itemId();
+    }
+
     private static CraftScopeResourceAmount buildOutput(
-            CraftScopeMobDropCatalog.DropDefinition drop
+            CraftScopeMobDropCatalog.DropDefinition drop,
+            ResourceLocation effectiveItemId
     ) {
         if (drop == null
-                || drop.itemId() == null) {
+                || effectiveItemId == null) {
 
             return null;
         }
@@ -243,7 +331,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
         Item item =
                 BuiltInRegistries.ITEM
                         .getOptional(
-                                drop.itemId()
+                                effectiveItemId
                         )
                         .orElse(
                                 null
@@ -285,14 +373,17 @@ public final class CraftScopeVanillaMobDropRouteProvider
         long nominalAmount;
 
         if (drop.minimum() > 0L) {
+
             nominalAmount =
                     drop.minimum();
 
         } else if (drop.maximum() > 0L) {
+
             nominalAmount =
                     1L;
 
         } else {
+
             nominalAmount =
                     0L;
         }
@@ -318,6 +409,63 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 drop.maximum(),
                 expected
         );
+    }
+
+    private static List<String> getVariantRequirements(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            OutcomeVariant variant
+    ) {
+        if (definition == null) {
+            return List.of();
+        }
+
+        Set<String> requirements =
+                new LinkedHashSet<>();
+
+        for (CraftScopeMobDropCatalog.DropDefinition drop :
+                definition.drops()) {
+
+            if (!drop.hasTransformation()) {
+                continue;
+            }
+
+            if (variant == OutcomeVariant.TRANSFORMED) {
+
+                requirements.addAll(
+                        drop.transformationRequirements()
+                );
+
+            } else {
+
+                requirements.addAll(
+                        drop.baseTransformationRequirements()
+                );
+            }
+        }
+
+        return List.copyOf(
+                requirements
+        );
+    }
+
+    private static boolean hasTransformation(
+            CraftScopeMobDropCatalog.MobDefinition definition
+    ) {
+        if (definition == null) {
+            return false;
+        }
+
+        for (CraftScopeMobDropCatalog.DropDefinition drop :
+                definition.drops()) {
+
+            if (drop != null
+                    && drop.hasTransformation()) {
+
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static CraftScopeResourceAmount findTargetOutput(
@@ -386,13 +534,6 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
-    /*
-     * Process Diagram uses this method through
-     * MixinCraftScopeMobDropProcessIcon.
-     *
-     * Explicit catalog icons take priority. If no explicit icon is
-     * supplied, use the registered spawn egg for the entity type.
-     */
     public static ItemStack getProcessIcon(
             ResourceLocation processId
     ) {
@@ -507,6 +648,40 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
+    private static String getActionName(
+            Component mobName,
+            OutcomeVariant variant
+    ) {
+        String base =
+                "Kill "
+                        + mobName.getString();
+
+        if (variant == OutcomeVariant.TRANSFORMED) {
+
+            return base
+                    + " (Smelted Loot)";
+        }
+
+        return base;
+    }
+
+    private static String getRouteName(
+            Component mobName,
+            OutcomeVariant variant
+    ) {
+        String base =
+                mobName.getString()
+                        + " Drops";
+
+        if (variant == OutcomeVariant.TRANSFORMED) {
+
+            return base
+                    + " (Smelted Loot)";
+        }
+
+        return base;
+    }
+
     private static ResourceLocation getProcessId(
             CraftScopeMobDropCatalog.MobDefinition definition
     ) {
@@ -522,26 +697,37 @@ public final class CraftScopeVanillaMobDropRouteProvider
     }
 
     private static String buildStepId(
-            CraftScopeMobDropCatalog.MobDefinition definition
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            OutcomeVariant variant
     ) {
         ResourceLocation entityId =
                 definition.entityTypeId();
 
-        return "craftscope:mob_drop:"
-                + entityId.getNamespace()
-                + ":"
-                + entityId.getPath()
-                + ":step";
+        String id =
+                "craftscope:mob_drop:"
+                        + entityId.getNamespace()
+                        + ":"
+                        + entityId.getPath()
+                        + ":step";
+
+        if (variant == OutcomeVariant.TRANSFORMED) {
+
+            id +=
+                    ":smelted";
+        }
+
+        return id;
     }
 
     private static ResourceLocation buildRouteId(
             CraftScopeMobDropCatalog.MobDefinition definition,
-            ResourceLocation targetId
+            ResourceLocation targetId,
+            OutcomeVariant variant
     ) {
         ResourceLocation entityId =
                 definition.entityTypeId();
 
-        return requireId(
+        String value =
                 "craftscope:acquisition/mob/"
                         + entityId.getNamespace()
                         + "/"
@@ -549,7 +735,16 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         + "/"
                         + targetId.getNamespace()
                         + "/"
-                        + targetId.getPath()
+                        + targetId.getPath();
+
+        if (variant == OutcomeVariant.TRANSFORMED) {
+
+            value +=
+                    "/smelted";
+        }
+
+        return requireId(
+                value
         );
     }
 
@@ -612,6 +807,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
             }
 
             if (!result.isEmpty()) {
+
                 result.append(
                         ' '
                 );
@@ -626,6 +822,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
             );
 
             if (piece.length() > 1) {
+
                 result.append(
                         piece.substring(
                                 1
@@ -648,6 +845,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 );
 
         if (id == null) {
+
             throw new IllegalArgumentException(
                     "Invalid resource location: "
                             + value
@@ -655,5 +853,10 @@ public final class CraftScopeVanillaMobDropRouteProvider
         }
 
         return id;
+    }
+
+    private enum OutcomeVariant {
+        BASE,
+        TRANSFORMED
     }
 }

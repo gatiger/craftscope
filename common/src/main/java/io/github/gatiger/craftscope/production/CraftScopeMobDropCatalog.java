@@ -10,35 +10,12 @@ import java.util.Objects;
 /*
  * Central mob-acquisition catalog.
  *
- * The important architectural point is that the production provider
- * no longer needs one Java implementation per item or per mob.
+ * The production provider translates catalog definitions into normal
+ * CraftScope production routes.
  *
- * CraftScopeVanillaMobDropRouteProvider is now only a TRANSLATOR:
- *
- *     catalog definition
- *          ↓
- *     generic production route
- *
- * The built-in definitions below are a compatibility fallback so the
- * behavior already tested by CraftScope remains available.
- *
- * Later, a server-side runtime loot-table reader can populate
- * replaceRuntimeDefinitions(...) with definitions derived from the
- * ACTUAL loaded loot tables. Runtime definitions replace the baseline
- * definition for the same entity and can also add completely new
- * modded entities without changing the provider.
- *
- * That gives us this long-term flow:
- *
- *     Loaded server loot tables
- *          ↓
- *     CraftScopeMobDropCatalog
- *          ↓
- *     one generic mob-drop provider
- *          ↓
- *     Recipe Tree / Process Diagram / Setup / Materials
- *
- * No per-item provider files are needed.
+ * Runtime definitions replace the complete baseline definition for
+ * an entity so removed or modified server drops cannot leak through
+ * from the built-in fallback catalog.
  */
 public final class CraftScopeMobDropCatalog {
 
@@ -326,14 +303,6 @@ public final class CraftScopeMobDropCatalog {
                     )
             );
 
-    /*
-     * Empty means "use the baseline catalog".
-     *
-     * Runtime entries are deliberately whole-mob definitions rather
-     * than individual drops. If a datapack removes a vanilla drop,
-     * the runtime definition can replace that mob completely and the
-     * removed baseline drop will not leak back in.
-     */
     private static volatile List<MobDefinition> runtimeDefinitions =
             List.of();
 
@@ -523,13 +492,6 @@ public final class CraftScopeMobDropCatalog {
         CHANCE
     }
 
-    /*
-     * iconItemId is optional.
-     *
-     * When null, the provider asks SpawnEggItem.byId(entityType).
-     * That makes modded mobs automatically use their registered spawn
-     * egg when one exists, without adding icon-specific Java code.
-     */
     public record MobDefinition(
             ResourceLocation entityTypeId,
             String sourceModId,
@@ -566,6 +528,25 @@ public final class CraftScopeMobDropCatalog {
         }
     }
 
+    /*
+     * transformedItemId represents an alternate item produced by a
+     * conditional loot transformation.
+     *
+     * Example:
+     *
+     *     minecraft:beef
+     *          ↓ furnace_smelt when condition is true
+     *     minecraft:cooked_beef
+     *
+     * This is NOT another independent drop. It is an alternate form
+     * of the same drop.
+     *
+     * baseTransformationRequirements describe what must be true for
+     * the normal itemId form to remain unchanged.
+     *
+     * transformationRequirements describe what must be true for the
+     * transformedItemId form to be produced.
+     */
     public record DropDefinition(
             ResourceLocation itemId,
             DropMode mode,
@@ -573,8 +554,42 @@ public final class CraftScopeMobDropCatalog {
             long maximum,
             long amount,
             double chance,
-            List<String> targetRequirements
+            List<String> targetRequirements,
+            ResourceLocation transformedItemId,
+            List<String> baseTransformationRequirements,
+            List<String> transformationRequirements
     ) {
+
+        /*
+         * Backward-compatible constructor.
+         *
+         * Existing baseline definitions, integrations, interpreter
+         * code, and runtime factories can continue creating normal
+         * drops without knowing anything about transformations.
+         */
+        public DropDefinition(
+                ResourceLocation itemId,
+                DropMode mode,
+                long minimum,
+                long maximum,
+                long amount,
+                double chance,
+                List<String> targetRequirements
+        ) {
+            this(
+                    itemId,
+                    mode,
+                    minimum,
+                    maximum,
+                    amount,
+                    chance,
+                    targetRequirements,
+                    null,
+                    List.of(),
+                    List.of()
+            );
+        }
+
         public DropDefinition {
             Objects.requireNonNull(
                     itemId,
@@ -595,14 +610,19 @@ public final class CraftScopeMobDropCatalog {
             }
 
             if (mode == DropMode.CHANCE) {
+
                 if (amount <= 0L) {
                     throw new IllegalArgumentException(
                             "Chance drop amount must be positive"
                     );
                 }
 
-                if (Double.isNaN(chance)
-                        || Double.isInfinite(chance)
+                if (Double.isNaN(
+                        chance
+                )
+                        || Double.isInfinite(
+                        chance
+                )
                         || chance < 0.0D
                         || chance > 1.0D) {
 
@@ -618,6 +638,39 @@ public final class CraftScopeMobDropCatalog {
                             : List.copyOf(
                             targetRequirements
                     );
+
+            baseTransformationRequirements =
+                    baseTransformationRequirements == null
+                            ? List.of()
+                            : List.copyOf(
+                            baseTransformationRequirements
+                    );
+
+            transformationRequirements =
+                    transformationRequirements == null
+                            ? List.of()
+                            : List.copyOf(
+                            transformationRequirements
+                    );
+
+            /*
+             * A drop without an alternate item cannot legitimately
+             * have transformation-specific requirements.
+             */
+            if (transformedItemId == null
+                    && (
+                    !baseTransformationRequirements.isEmpty()
+                            || !transformationRequirements.isEmpty()
+            )) {
+
+                throw new IllegalArgumentException(
+                        "Transformation requirements require a transformed item"
+                );
+            }
+        }
+
+        public boolean hasTransformation() {
+            return transformedItemId != null;
         }
     }
 }
