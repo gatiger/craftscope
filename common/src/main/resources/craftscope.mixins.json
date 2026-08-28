@@ -21,6 +21,7 @@
     "MixinCraftScopeFarmingProcessIcon",
     "MixinCraftScopeMobDropRecipeTree",
     "MixinCraftScopeMobDropProcessIcon",
+    "MixinCraftScopeProcessOptionSourceOwnership",
     "MixinCraftScopeYieldSummary",
     "MixinCraftScopeYieldNormalization",
     "MixinCraftScopeVariableYieldDiagramUi",

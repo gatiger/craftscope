@@ -13,21 +13,38 @@ import java.util.List;
 /*
  * Vanilla mob-drop acquisition routes.
  *
- * This first pass intentionally models ordinary, unenchanted Java
- * Edition drops only. Looting is NOT included in the production
- * math, matching CraftScope's rule that enchantments belong in a
- * separate visual-guide system rather than changing baseline route
- * calculations.
+ * Baseline production math intentionally represents ordinary,
+ * unenchanted Java Edition drops. Looting remains outside the core
+ * production model and can later be presented by CraftScope's
+ * separate enchantment-guide system.
  *
- * The provider uses explicit min/max/expected metadata because mob
- * drops often include zero:
+ * This provider supports two distinct drop shapes:
  *
- *   Creeper   -> Gunpowder 0-2, expected 1
- *   Enderman  -> Ender Pearl 0-1, expected 0.5
+ *   RANGE
+ *     Natural integer ranges such as:
+ *       Creeper -> 0-2 Gunpowder
+ *       Squid   -> 1-3 Ink Sacs
  *
- * A nominal amount of 1 is used as the scaling unit even when the
- * minimum is zero. That keeps expected-run planning and scaled
- * Process Diagram ranges well-defined.
+ *   CHANCE
+ *     Explicit independent probabilities such as:
+ *       Shulker    -> 1 Shell at 50%
+ *       Rabbit     -> 1 Rabbit's Foot at 10%
+ *       Magma Cube -> 1 Magma Cream at 25%
+ *
+ * A drop can also carry target-specific acquisition requirements.
+ * This is important because some drops require a player/tamed-wolf
+ * kill while other ordinary drops from the same mob do not.
+ *
+ * Example:
+ *
+ *   Drowned -> Rotten Flesh
+ *       no special kill requirement
+ *
+ *   Drowned -> Copper Ingot
+ *       player or tamed-wolf kill required
+ *
+ * The requirement is therefore attached to the Copper Ingot drop,
+ * not globally to every Drowned route.
  */
 public final class CraftScopeVanillaMobDropRouteProvider
         implements CraftScopeProductionRouteProvider {
@@ -54,7 +71,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.CREEPER_SPAWN_EGG,
                             BASE_PRIORITY,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.GUNPOWDER,
                                             0,
                                             2
@@ -67,12 +84,12 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.SKELETON_SPAWN_EGG,
                             BASE_PRIORITY - 10,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.BONE,
                                             0,
                                             2
                                     ),
-                                    drop(
+                                    rangeDrop(
                                             Items.ARROW,
                                             0,
                                             2
@@ -85,7 +102,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.ZOMBIE_SPAWN_EGG,
                             BASE_PRIORITY - 20,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.ROTTEN_FLESH,
                                             0,
                                             2
@@ -98,7 +115,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.SPIDER_SPAWN_EGG,
                             BASE_PRIORITY - 30,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.STRING,
                                             0,
                                             2
@@ -111,7 +128,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.ENDERMAN_SPAWN_EGG,
                             BASE_PRIORITY - 40,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.ENDER_PEARL,
                                             0,
                                             1
@@ -129,7 +146,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
                                     )
                             ),
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.BLAZE_ROD,
                                             0,
                                             1
@@ -142,12 +159,12 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.COW_SPAWN_EGG,
                             BASE_PRIORITY - 60,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.LEATHER,
                                             0,
                                             2
                                     ),
-                                    drop(
+                                    rangeDrop(
                                             Items.BEEF,
                                             1,
                                             3
@@ -160,12 +177,12 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.CHICKEN_SPAWN_EGG,
                             BASE_PRIORITY - 70,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.FEATHER,
                                             0,
                                             2
                                     ),
-                                    drop(
+                                    rangeDrop(
                                             Items.CHICKEN,
                                             1,
                                             1
@@ -178,10 +195,206 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             Items.PIG_SPAWN_EGG,
                             BASE_PRIORITY - 80,
                             drops(
-                                    drop(
+                                    rangeDrop(
                                             Items.PORKCHOP,
                                             1,
                                             3
+                                    )
+                            )
+                    ),
+
+                    /*
+                     * Expanded ordinary mob acquisition coverage.
+                     */
+                    mob(
+                            "ghast",
+                            "Ghast",
+                            Items.GHAST_SPAWN_EGG,
+                            BASE_PRIORITY - 90,
+                            drops(
+                                    rangeDrop(
+                                            Items.GUNPOWDER,
+                                            0,
+                                            2
+                                    ),
+                                    rangeDrop(
+                                            Items.GHAST_TEAR,
+                                            0,
+                                            1
+                                    )
+                            )
+                    ),
+                    mob(
+                            "slime",
+                            "Small Slime",
+                            Items.SLIME_SPAWN_EGG,
+                            BASE_PRIORITY - 100,
+                            List.of(
+                                    otherRequirement(
+                                            "Size 1 (small) Slime"
+                                    )
+                            ),
+                            drops(
+                                    rangeDrop(
+                                            Items.SLIME_BALL,
+                                            0,
+                                            2
+                                    )
+                            )
+                    ),
+                    mob(
+                            "magma_cube",
+                            "Magma Cube",
+                            Items.MAGMA_CUBE_SPAWN_EGG,
+                            BASE_PRIORITY - 110,
+                            List.of(
+                                    otherRequirement(
+                                            "Medium or Large Magma Cube"
+                                    )
+                            ),
+                            drops(
+                                    chanceDrop(
+                                            Items.MAGMA_CREAM,
+                                            1,
+                                            0.25D
+                                    )
+                            )
+                    ),
+                    mob(
+                            "squid",
+                            "Squid",
+                            Items.SQUID_SPAWN_EGG,
+                            BASE_PRIORITY - 120,
+                            drops(
+                                    rangeDrop(
+                                            Items.INK_SAC,
+                                            1,
+                                            3
+                                    )
+                            )
+                    ),
+                    mob(
+                            "glow_squid",
+                            "Glow Squid",
+                            Items.GLOW_SQUID_SPAWN_EGG,
+                            BASE_PRIORITY - 130,
+                            drops(
+                                    rangeDrop(
+                                            Items.GLOW_INK_SAC,
+                                            1,
+                                            3
+                                    )
+                            )
+                    ),
+                    mob(
+                            "rabbit",
+                            "Rabbit",
+                            Items.RABBIT_SPAWN_EGG,
+                            BASE_PRIORITY - 140,
+                            drops(
+                                    rangeDrop(
+                                            Items.RABBIT_HIDE,
+                                            0,
+                                            1
+                                    ),
+                                    rangeDrop(
+                                            Items.RABBIT,
+                                            0,
+                                            1
+                                    ),
+                                    chanceDrop(
+                                            Items.RABBIT_FOOT,
+                                            1,
+                                            0.10D,
+                                            otherRequirement(
+                                                    "Player kill"
+                                            )
+                                    )
+                            )
+                    ),
+                    mob(
+                            "phantom",
+                            "Phantom",
+                            Items.PHANTOM_SPAWN_EGG,
+                            BASE_PRIORITY - 150,
+                            drops(
+                                    rangeDrop(
+                                            Items.PHANTOM_MEMBRANE,
+                                            0,
+                                            1,
+                                            otherRequirement(
+                                                    "Player or tamed-wolf kill"
+                                            )
+                                    )
+                            )
+                    ),
+                    mob(
+                            "shulker",
+                            "Shulker",
+                            Items.SHULKER_SPAWN_EGG,
+                            BASE_PRIORITY - 160,
+                            drops(
+                                    chanceDrop(
+                                            Items.SHULKER_SHELL,
+                                            1,
+                                            0.50D
+                                    )
+                            )
+                    ),
+                    mob(
+                            "iron_golem",
+                            "Iron Golem",
+                            Items.IRON_GOLEM_SPAWN_EGG,
+                            BASE_PRIORITY - 170,
+                            drops(
+                                    rangeDrop(
+                                            Items.IRON_INGOT,
+                                            3,
+                                            5
+                                    ),
+                                    rangeDrop(
+                                            Items.POPPY,
+                                            0,
+                                            2
+                                    )
+                            )
+                    ),
+                    mob(
+                            "drowned",
+                            "Drowned",
+                            Items.DROWNED_SPAWN_EGG,
+                            BASE_PRIORITY - 180,
+                            drops(
+                                    rangeDrop(
+                                            Items.ROTTEN_FLESH,
+                                            0,
+                                            2
+                                    ),
+                                    chanceDrop(
+                                            Items.COPPER_INGOT,
+                                            1,
+                                            0.11D,
+                                            otherRequirement(
+                                                    "Player or tamed-wolf kill"
+                                            )
+                                    )
+                            )
+                    ),
+                    mob(
+                            "guardian",
+                            "Guardian",
+                            Items.GUARDIAN_SPAWN_EGG,
+                            BASE_PRIORITY - 190,
+                            drops(
+                                    rangeDrop(
+                                            Items.PRISMARINE_SHARD,
+                                            0,
+                                            2
+                                    ),
+                                    chanceDrop(
+                                            Items.PRISMARINE_CRYSTALS,
+                                            1,
+                                            0.40D
                                     )
                             )
                     )
@@ -208,6 +421,16 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
         for (MobDefinition definition :
                 DEFINITIONS) {
+
+            DropDefinition targetDrop =
+                    findTargetDrop(
+                            definition,
+                            target
+                    );
+
+            if (targetDrop == null) {
+                continue;
+            }
 
             List<CraftScopeResourceAmount> outputs =
                     buildOutputs(
@@ -242,6 +465,10 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
             requirements.addAll(
                     definition.extraRequirements()
+            );
+
+            requirements.addAll(
+                    targetDrop.targetRequirements()
             );
 
             CraftScopeProductionMethod method =
@@ -311,37 +538,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
         for (DropDefinition drop :
                 definition.drops()) {
 
-            ItemStack stack =
-                    new ItemStack(
-                            drop.item()
-                    );
-
-            ResourceLocation id =
-                    BuiltInRegistries.ITEM.getKey(
-                            drop.item()
-                    );
-
-            double expected =
-                    (
-                            (double) drop.minimum()
-                                    + (double) drop.maximum()
-                    ) / 2.0D;
-
             outputs.add(
-                    new CraftScopeResourceAmount(
-                            CraftScopeResourceKind.ITEM,
-                            id,
-                            stack.getHoverName().copy(),
-                            1,
-                            "",
-                            false,
-                            1.0D,
-                            List.of(
-                                    id
-                            ),
-                            drop.minimum(),
-                            drop.maximum(),
-                            expected
+                    buildOutput(
+                            drop
                     )
             );
         }
@@ -349,6 +548,92 @@ public final class CraftScopeVanillaMobDropRouteProvider
         return List.copyOf(
                 outputs
         );
+    }
+
+    private static CraftScopeResourceAmount buildOutput(
+            DropDefinition drop
+    ) {
+        ItemStack stack =
+                new ItemStack(
+                        drop.item()
+                );
+
+        ResourceLocation id =
+                BuiltInRegistries.ITEM.getKey(
+                        drop.item()
+                );
+
+        if (drop.mode()
+                == DropMode.CHANCE) {
+
+            return new CraftScopeResourceAmount(
+                    CraftScopeResourceKind.ITEM,
+                    id,
+                    stack.getHoverName().copy(),
+                    drop.amount(),
+                    "",
+                    false,
+                    drop.chance(),
+                    List.of(
+                            id
+                    )
+            );
+        }
+
+        long nominalAmount =
+                drop.minimum() > 0L
+                        ? drop.minimum()
+                        : 1L;
+
+        double expected =
+                (
+                        (double) drop.minimum()
+                                + (double) drop.maximum()
+                ) / 2.0D;
+
+        return new CraftScopeResourceAmount(
+                CraftScopeResourceKind.ITEM,
+                id,
+                stack.getHoverName().copy(),
+                nominalAmount,
+                "",
+                false,
+                1.0D,
+                List.of(
+                        id
+                ),
+                drop.minimum(),
+                drop.maximum(),
+                expected
+        );
+    }
+
+    private static DropDefinition findTargetDrop(
+            MobDefinition definition,
+            ItemStack target
+    ) {
+        ResourceLocation targetId =
+                BuiltInRegistries.ITEM.getKey(
+                        target.getItem()
+                );
+
+        for (DropDefinition drop :
+                definition.drops()) {
+
+            ResourceLocation dropId =
+                    BuiltInRegistries.ITEM.getKey(
+                            drop.item()
+                    );
+
+            if (dropId.equals(
+                    targetId
+            )) {
+
+                return drop;
+            }
+        }
+
+        return null;
     }
 
     private static CraftScopeResourceAmount findTargetOutput(
@@ -382,29 +667,59 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
-    private static DropDefinition drop(
+    private static DropDefinition rangeDrop(
             Item item,
             long minimum,
-            long maximum
+            long maximum,
+            CraftScopeProcessRequirement... targetRequirements
     ) {
         return new DropDefinition(
                 item,
+                DropMode.RANGE,
                 minimum,
-                maximum
+                maximum,
+                0L,
+                1.0D,
+                targetRequirements == null
+                        ? List.of()
+                        : List.of(
+                        targetRequirements
+                )
+        );
+    }
+
+    private static DropDefinition chanceDrop(
+            Item item,
+            long amount,
+            double chance,
+            CraftScopeProcessRequirement... targetRequirements
+    ) {
+        return new DropDefinition(
+                item,
+                DropMode.CHANCE,
+                0L,
+                amount,
+                amount,
+                chance,
+                targetRequirements == null
+                        ? List.of()
+                        : List.of(
+                        targetRequirements
+                )
         );
     }
 
     private static MobDefinition mob(
             String path,
             String displayName,
-            Item spawnEgg,
+            Item iconItem,
             int priority,
             List<DropDefinition> drops
     ) {
         return mob(
                 path,
                 displayName,
-                spawnEgg,
+                iconItem,
                 priority,
                 List.of(),
                 drops
@@ -414,7 +729,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
     private static MobDefinition mob(
             String path,
             String displayName,
-            Item spawnEgg,
+            Item iconItem,
             int priority,
             List<CraftScopeProcessRequirement> extraRequirements,
             List<DropDefinition> drops
@@ -422,7 +737,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
         return new MobDefinition(
                 path,
                 displayName,
-                spawnEgg,
+                iconItem,
                 priority,
                 extraRequirements,
                 drops
@@ -474,7 +789,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
             )) {
 
                 return new ItemStack(
-                        definition.spawnEgg()
+                        definition.iconItem()
                 );
             }
         }
@@ -500,10 +815,19 @@ public final class CraftScopeVanillaMobDropRouteProvider
         return id;
     }
 
+    private enum DropMode {
+        RANGE,
+        CHANCE
+    }
+
     private record DropDefinition(
             Item item,
+            DropMode mode,
             long minimum,
-            long maximum
+            long maximum,
+            long amount,
+            double chance,
+            List<CraftScopeProcessRequirement> targetRequirements
     ) {
         private DropDefinition {
             if (item == null
@@ -514,6 +838,12 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 );
             }
 
+            if (mode == null) {
+                throw new IllegalArgumentException(
+                        "Mob drop mode cannot be null"
+                );
+            }
+
             if (minimum < 0L
                     || maximum < minimum) {
 
@@ -521,13 +851,38 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         "Invalid mob drop range"
                 );
             }
+
+            if (mode == DropMode.CHANCE) {
+                if (amount <= 0L) {
+                    throw new IllegalArgumentException(
+                            "Chance drop amount must be positive"
+                    );
+                }
+
+                if (Double.isNaN(chance)
+                        || Double.isInfinite(chance)
+                        || chance < 0.0D
+                        || chance > 1.0D) {
+
+                    throw new IllegalArgumentException(
+                            "Chance drop probability must be between 0 and 1"
+                    );
+                }
+            }
+
+            targetRequirements =
+                    targetRequirements == null
+                            ? List.of()
+                            : List.copyOf(
+                            targetRequirements
+                    );
         }
     }
 
     private record MobDefinition(
             String path,
             String displayName,
-            Item spawnEgg,
+            Item iconItem,
             int priority,
             List<CraftScopeProcessRequirement> extraRequirements,
             List<DropDefinition> drops
@@ -549,11 +904,11 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 );
             }
 
-            if (spawnEgg == null
-                    || spawnEgg == Items.AIR) {
+            if (iconItem == null
+                    || iconItem == Items.AIR) {
 
                 throw new IllegalArgumentException(
-                        "Mob spawn egg cannot be empty"
+                        "Mob process icon cannot be empty"
                 );
             }
 
