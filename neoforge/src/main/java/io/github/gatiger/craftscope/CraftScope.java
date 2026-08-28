@@ -1,17 +1,19 @@
 package io.github.gatiger.craftscope;
 
+import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
+import io.github.gatiger.craftscope.network.CraftScopeNeoForgeNetworking;
+import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
-import io.github.gatiger.craftscope.client.CraftScopeClientConfigManager;
 import net.neoforged.fml.loading.FMLPaths;
-import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 
 @Mod(Constants.MOD_ID)
 public class CraftScope {
 
-    public CraftScope(IEventBus eventBus) {
+    public CraftScope(
+            IEventBus eventBus
+    ) {
 
-        // Load CraftScope's client-side configuration.
         CraftScopeClientConfigManager.load(
                 FMLPaths.CONFIGDIR.get()
         );
@@ -20,8 +22,18 @@ public class CraftScope {
                 FMLPaths.CONFIGDIR.get()
         );
 
-        // Use NeoForge to bootstrap the Common mod.
-        Constants.LOG.info("Hello NeoForge world!");
+        /*
+         * Register CraftScope's optional multiplayer runtime-data
+         * transport.
+         */
+        CraftScopeNeoForgeNetworking.initialize(
+                eventBus
+        );
+
+        Constants.LOG.info(
+                "Initializing CraftScope on NeoForge"
+        );
+
         CommonClass.init();
     }
 }
