@@ -298,8 +298,7 @@ public record CraftScopeResourceAmount(
     }
 
     public boolean hasVariableRange() {
-        return chance >= 1.0D
-                && minimumAmount != maximumAmount;
+        return minimumAmount != maximumAmount;
     }
 
     public boolean hasVariableYield() {

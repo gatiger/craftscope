@@ -52,17 +52,43 @@ public abstract class MixinCraftScopeChanceUi {
                         : "";
 
         if (resource.hasVariableRange()) {
-            cir.setReturnValue(
-                    "≈"
-                            + expectedText
-                            + unitText
-                            + " exp. ("
-                            + resource.minimumAmount()
-                            + "-"
-                            + resource.maximumAmount()
-                            + unitText
-                            + ")"
-            );
+
+            if (resource.isProbabilistic()) {
+
+                String percentText =
+                        craftscope$formatNumber(
+                                resource.chance()
+                                        * 100.0D
+                        );
+
+                cir.setReturnValue(
+                        "≈"
+                                + expectedText
+                                + unitText
+                                + " exp. @"
+                                + percentText
+                                + "% ("
+                                + resource.minimumAmount()
+                                + "-"
+                                + resource.maximumAmount()
+                                + unitText
+                                + ")"
+                );
+
+            } else {
+
+                cir.setReturnValue(
+                        "≈"
+                                + expectedText
+                                + unitText
+                                + " exp. ("
+                                + resource.minimumAmount()
+                                + "-"
+                                + resource.maximumAmount()
+                                + unitText
+                                + ")"
+                );
+            }
 
             return;
         }

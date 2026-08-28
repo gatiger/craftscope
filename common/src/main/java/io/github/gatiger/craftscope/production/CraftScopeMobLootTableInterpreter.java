@@ -686,21 +686,15 @@ public final class CraftScopeMobLootTableInterpreter {
                         requirements
                 );
 
-        if (chance < 1.0D - EPSILON) {
-
-            /*
-             * Current DropDefinition can represent:
-             *
-             *     1 item at 11%
-             *
-             * but cannot accurately represent:
-             *
-             *     0-2 items at 11%
-             */
-            if (minimum != maximum) {
-
-                return EntryInterpretation.unsupported();
-            }
+        /*
+         * Fixed-count probabilistic output:
+         *
+         *     1 item at 11%
+         *
+         * remains the ordinary CHANCE representation.
+         */
+        if (chance < 1.0D - EPSILON
+                && minimum == maximum) {
 
             return new EntryInterpretation(
                     true,
@@ -716,6 +710,18 @@ public final class CraftScopeMobLootTableInterpreter {
             );
         }
 
+        /*
+         * RANGE can also carry a probability.
+         *
+         * Example after weighted-pool normalization:
+         *
+         *     Polar Bear Cod
+         *         0-2 items
+         *         selected 75% of the time
+         *
+         * DropDefinition already transports min/max/chance
+         * independently, so no new network format is required.
+         */
         return new EntryInterpretation(
                 true,
                 new CraftScopeMobDropCatalog.DropDefinition(
@@ -724,7 +730,7 @@ public final class CraftScopeMobLootTableInterpreter {
                         minimum,
                         maximum,
                         0L,
-                        1.0D,
+                        chance,
                         requirementList
                 )
         );

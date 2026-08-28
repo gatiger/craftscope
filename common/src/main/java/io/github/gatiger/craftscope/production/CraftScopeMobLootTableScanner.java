@@ -15,17 +15,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
-/*
- * Reads authoritative entity loot tables from the currently running
- * Minecraft server and publishes every completely interpreted mob to
- * CraftScope's runtime mob-drop registry.
- *
- * Complete tables become runtime definitions.
- *
- * Partial or unsupported tables are not published, allowing
- * CraftScopeMobDropCatalog to retain its built-in fallback definition
- * for that entity when one exists.
- */
 public final class CraftScopeMobLootTableScanner {
 
     private CraftScopeMobLootTableScanner() {
@@ -75,13 +64,11 @@ public final class CraftScopeMobLootTableScanner {
             }
 
             ResourceKey<LootTable> lootTableKey =
-                    entityType
-                            .getDefaultLootTable();
+                    entityType.getDefaultLootTable();
 
             if (lootTableKey == null) {
 
                 emptyTables++;
-
                 continue;
             }
 
@@ -96,17 +83,14 @@ public final class CraftScopeMobLootTableScanner {
                     || lootTable == LootTable.EMPTY) {
 
                 emptyTables++;
-
                 continue;
             }
 
             var encodedResult =
-                    LootTable
-                            .DIRECT_CODEC
-                            .encodeStart(
-                                    registryOps,
-                                    lootTable
-                            );
+                    LootTable.DIRECT_CODEC.encodeStart(
+                            registryOps,
+                            lootTable
+                    );
 
             var encoded =
                     encodedResult.result();
@@ -149,13 +133,8 @@ public final class CraftScopeMobLootTableScanner {
                 result.serializationFailures()
         );
 
-        /*
-         * Convert only specifically understood conditional
-         * furnace-smelt functions into CraftScope transformation
-         * metadata before the conservative interpreter sees them.
-         */
         CraftScopeMobLootFurnaceSmeltProcessor.PreparedScan
-                prepared =
+                furnacePrepared =
                 CraftScopeMobLootFurnaceSmeltProcessor.prepare(
                         result,
                         server.getRecipeManager(),
@@ -164,31 +143,52 @@ public final class CraftScopeMobLootTableScanner {
 
         Constants.LOG.info(
                 "CraftScope furnace-smelt preprocessing: {} transformations resolved",
-                prepared.transformationCount()
+                furnacePrepared.transformationCount()
+        );
+
+        CraftScopeMobLootNegativeCountProcessor.PreparedScan
+                countPrepared =
+                CraftScopeMobLootNegativeCountProcessor.prepare(
+                        furnacePrepared.scanResult()
+                );
+
+        Constants.LOG.info(
+                "CraftScope negative-count preprocessing: {} drops normalized",
+                countPrepared.normalizedCount()
+        );
+
+        CraftScopeMobLootMultiEntryProcessor.PreparedScan
+                multiEntryPrepared =
+                CraftScopeMobLootMultiEntryProcessor.prepare(
+                        countPrepared.scanResult()
+                );
+
+        Constants.LOG.info(
+                "CraftScope multi-entry preprocessing: {} pools normalized, {} item branches generated",
+                multiEntryPrepared.poolsNormalized(),
+                multiEntryPrepared.itemBranchesGenerated()
         );
 
         CraftScopeMobLootTableInterpreter.InterpretationResult
                 interpretation =
                 CraftScopeMobLootTableInterpreter.interpret(
-                        prepared.scanResult()
+                        multiEntryPrepared.scanResult()
                 );
 
         interpretation =
                 CraftScopeMobLootFurnaceSmeltProcessor
                         .applyTransformations(
                                 interpretation,
-                                prepared
+                                furnacePrepared
                         );
 
-        /*
-         * Diagnostics run against the PREPARED data.
-         *
-         * Therefore furnace-smelt cases that CraftScope now understands
-         * disappear from the unsupported report, leaving only the
-         * structures we genuinely still need to implement.
-         */
         CraftScopeMobLootUnsupportedDiagnostics.log(
-                prepared.scanResult()
+                multiEntryPrepared.scanResult()
+        );
+
+        CraftScopeMobLootPartialDiagnostics.log(
+                multiEntryPrepared.scanResult(),
+                interpretation
         );
 
         CraftScopeMobDropRuntimeRegistry.replaceAll(

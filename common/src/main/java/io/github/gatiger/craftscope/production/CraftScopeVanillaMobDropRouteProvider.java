@@ -388,11 +388,28 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     0L;
         }
 
-        double expected =
+        double chance =
+                drop.chance();
+
+        /*
+         * Once a range is probabilistic, zero becomes a possible
+         * overall outcome even if the conditional range itself starts
+         * above zero.
+         */
+        long effectiveMinimum =
+                chance < 1.0D
+                        ? 0L
+                        : drop.minimum();
+
+        double conditionalExpected =
                 (
                         (double) drop.minimum()
                                 + (double) drop.maximum()
                 ) / 2.0D;
+
+        double expected =
+                conditionalExpected
+                        * chance;
 
         return new CraftScopeResourceAmount(
                 CraftScopeResourceKind.ITEM,
@@ -401,11 +418,11 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 nominalAmount,
                 "",
                 false,
-                1.0D,
+                chance,
                 List.of(
                         id
                 ),
-                drop.minimum(),
+                effectiveMinimum,
                 drop.maximum(),
                 expected
         );

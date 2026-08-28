@@ -66,6 +66,16 @@ public abstract class MixinCraftScopeVariableYieldDiagramUi {
                 resource.expectedAmount()
                         * runs;
 
+        String probabilityText =
+                resource.isProbabilistic()
+                        ? " @"
+                        + craftscope$formatNumber(
+                        resource.chance()
+                                * 100.0D
+                )
+                        + "%"
+                        : "";
+
         cir.setReturnValue(
                 "x"
                         + minimum
@@ -75,6 +85,7 @@ public abstract class MixinCraftScopeVariableYieldDiagramUi {
                         + craftscope$formatNumber(
                         expected
                 )
+                        + probabilityText
         );
     }
 
