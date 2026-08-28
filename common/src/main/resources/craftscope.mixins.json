@@ -9,6 +9,7 @@
     "MixinMinecraft",
     "MixinAbstractContainerScreen",
     "MixinCraftScopeProjectScreen",
+    "MixinCraftScopeQuantityFocus",
     "MixinCraftScopeOverflowTextScroll",
     "MixinCraftScopeScrollableOverflow",
     "MixinCraftScopeScrollableDetails",
