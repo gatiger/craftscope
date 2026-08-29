@@ -9,6 +9,23 @@ public class CraftScopeProject {
     private String id;
     private String name;
     private String targetItemId;
+
+    /*
+     * Serialized full ItemStack for component-aware targets.
+     *
+     * Examples:
+     *
+     *     Poison Tipped Arrow
+     *     Slowness Tipped Arrow
+     *     Ominous Bottle with amplifier
+     *
+     * targetItemId remains as the backward-compatible base item ID.
+     *
+     * Projects created before this field existed simply load it as
+     * null and continue using the old ID-only behavior.
+     */
+    private String targetItemStackJson;
+
     private int targetCount;
 
     /*
@@ -37,6 +54,7 @@ public class CraftScopeProject {
         this.id = id;
         this.name = name;
         this.targetItemId = targetItemId;
+        this.targetItemStackJson = null;
         this.targetCount = targetCount;
         this.recipeOverrides = new HashMap<>();
     }
@@ -51,6 +69,10 @@ public class CraftScopeProject {
 
     public String getTargetItemId() {
         return targetItemId;
+    }
+
+    public String getTargetItemStackJson() {
+        return targetItemStackJson;
     }
 
     public int getTargetCount() {
@@ -82,7 +104,28 @@ public class CraftScopeProject {
     public void setTargetItemId(
             String targetItemId
     ) {
-        this.targetItemId = targetItemId;
+        this.targetItemId =
+                targetItemId;
+
+        /*
+         * An ID-only target assignment invalidates any previously
+         * stored component-bearing stack.
+         *
+         * craftscope$setTargetItem stores the new serialized stack
+         * immediately after setting the ID.
+         */
+        this.targetItemStackJson =
+                null;
+    }
+
+    public void setTargetItemStackJson(
+            String targetItemStackJson
+    ) {
+        this.targetItemStackJson =
+                targetItemStackJson == null
+                        || targetItemStackJson.isBlank()
+                        ? null
+                        : targetItemStackJson;
     }
 
     public void setTargetCount(

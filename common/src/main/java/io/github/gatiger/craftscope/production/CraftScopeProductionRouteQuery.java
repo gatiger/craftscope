@@ -544,30 +544,40 @@ public final class CraftScopeProductionRouteQuery {
                 String::compareTo
         );
 
-        return resource.kind()
-                + "|"
-                + String.join(
-                ",",
-                variants
-        )
-                + "|amount="
-                + resource.amount()
-                + "|unit="
-                + resource.unit()
-                + "|consumed="
-                + resource.consumed()
-                + "|chance="
-                + Double.toHexString(
-                resource.chance()
-        )
-                + "|min="
-                + resource.minimumAmount()
-                + "|max="
-                + resource.maximumAmount()
-                + "|expected="
-                + Double.toHexString(
-                resource.expectedAmount()
-        );
+        String key =
+                resource.kind()
+                        + "|"
+                        + String.join(
+                        ",",
+                        variants
+                )
+                        + "|amount="
+                        + resource.amount()
+                        + "|unit="
+                        + resource.unit()
+                        + "|consumed="
+                        + resource.consumed()
+                        + "|chance="
+                        + Double.toHexString(
+                        resource.chance()
+                )
+                        + "|min="
+                        + resource.minimumAmount()
+                        + "|max="
+                        + resource.maximumAmount()
+                        + "|expected="
+                        + Double.toHexString(
+                        resource.expectedAmount()
+                );
+
+        if (resource.hasCustomItemComponents()) {
+
+            key +=
+                    "|itemIdentity="
+                            + resource.itemIdentity();
+        }
+
+        return key;
     }
 
     private static String buildExactResourceIdentity(
@@ -577,25 +587,35 @@ public final class CraftScopeProductionRouteQuery {
             return "null";
         }
 
-        return resource.kind()
-                + "|"
-                + resource.id()
-                + "|amount="
-                + resource.amount()
-                + "|unit="
-                + resource.unit()
-                + "|chance="
-                + Double.toHexString(
-                resource.chance()
-        )
-                + "|min="
-                + resource.minimumAmount()
-                + "|max="
-                + resource.maximumAmount()
-                + "|expected="
-                + Double.toHexString(
-                resource.expectedAmount()
-        );
+        String key =
+                resource.kind()
+                        + "|"
+                        + resource.id()
+                        + "|amount="
+                        + resource.amount()
+                        + "|unit="
+                        + resource.unit()
+                        + "|chance="
+                        + Double.toHexString(
+                        resource.chance()
+                )
+                        + "|min="
+                        + resource.minimumAmount()
+                        + "|max="
+                        + resource.maximumAmount()
+                        + "|expected="
+                        + Double.toHexString(
+                        resource.expectedAmount()
+                );
+
+        if (resource.hasCustomItemComponents()) {
+
+            key +=
+                    "|itemIdentity="
+                            + resource.itemIdentity();
+        }
+
+        return key;
     }
 
     private static ResourceLocation canonicalizeProcessInputVariant(
@@ -943,7 +963,10 @@ public final class CraftScopeProductionRouteQuery {
                     accepted,
                     representative.minimumAmount(),
                     representative.maximumAmount(),
-                    representative.expectedAmount()
+                    representative.expectedAmount(),
+                    representative.hasCustomItemComponents()
+                            ? representative.itemIdentity()
+                            : null
             );
         }
     }

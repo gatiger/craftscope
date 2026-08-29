@@ -193,10 +193,30 @@ public final class CraftScopeMobLootTableScanner {
                 multiEntryPrepared.itemBranchesGenerated()
         );
 
+        /*
+         * Resolve component-changing loot functions only after the
+         * structural preprocessors have finished reshaping entries.
+         *
+         * The processor removes only set_potion functions it fully
+         * understands and records the resulting ItemStack identity
+         * for application after normal loot interpretation.
+         */
+        CraftScopeMobLootPotionProcessor.PreparedScan
+                potionPrepared =
+                CraftScopeMobLootPotionProcessor.prepare(
+                        multiEntryPrepared.scanResult(),
+                        server.registryAccess()
+                );
+
+        Constants.LOG.info(
+                "CraftScope potion-component preprocessing: {} item identities resolved",
+                potionPrepared.identityCount()
+        );
+
         CraftScopeMobLootTableInterpreter.InterpretationResult
                 interpretation =
                 CraftScopeMobLootTableInterpreter.interpret(
-                        multiEntryPrepared.scanResult()
+                        potionPrepared.scanResult()
                 );
 
         interpretation =
@@ -206,12 +226,24 @@ public final class CraftScopeMobLootTableScanner {
                                 furnacePrepared
                         );
 
+        interpretation =
+                CraftScopeMobLootPotionProcessor
+                        .applyIdentities(
+                                interpretation,
+                                potionPrepared
+                        );
+
+        /*
+         * Diagnostics inspect the same prepared loot structure the
+         * interpreter actually consumed. Successfully modeled potion
+         * functions therefore no longer appear as false blockers.
+         */
         CraftScopeMobLootUnsupportedDiagnostics.log(
-                multiEntryPrepared.scanResult()
+                potionPrepared.scanResult()
         );
 
         CraftScopeMobLootPartialDiagnostics.log(
-                multiEntryPrepared.scanResult(),
+                potionPrepared.scanResult(),
                 interpretation
         );
 

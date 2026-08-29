@@ -601,7 +601,8 @@ public final class CraftScopeProductionRouteExpander {
                 resource.unit(),
                 resource.consumed(),
                 resource.chance(),
-                resource.acceptedVariantIds()
+                resource.acceptedVariantIds(),
+                resource.itemIdentity()
         );
     }
 

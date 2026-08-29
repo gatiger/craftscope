@@ -1,7 +1,8 @@
 package io.github.gatiger.craftscope.production;
 
-import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -35,7 +36,9 @@ import java.util.Objects;
 public final class CraftScopeMobDropRuntimeCodec {
 
     /*
-     * Version 2 adds conditional drop-transformation metadata.
+     * Version 3 adds component-aware ItemStack identity metadata.
+     *
+     * Version 2 added conditional drop-transformation metadata.
      *
      * Example:
      *
@@ -44,7 +47,7 @@ public final class CraftScopeMobDropRuntimeCodec {
      * cooked beef
      */
     private static final int FORMAT_VERSION =
-            2;
+            3;
 
     private static final int MAX_MOBS =
             4096;
@@ -69,7 +72,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     public static void write(
-            FriendlyByteBuf buffer,
+            RegistryFriendlyByteBuf buffer,
             Collection<CraftScopeMobDropCatalog.MobDefinition> definitions
     ) {
         Objects.requireNonNull(
@@ -109,7 +112,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     public static List<CraftScopeMobDropCatalog.MobDefinition> read(
-            FriendlyByteBuf buffer
+            RegistryFriendlyByteBuf buffer
     ) {
         Objects.requireNonNull(
                 buffer,
@@ -156,7 +159,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     public static void readAndApply(
-            FriendlyByteBuf buffer
+            RegistryFriendlyByteBuf buffer
     ) {
         CraftScopeMobDropRuntimeRegistry.replaceAll(
                 read(
@@ -166,7 +169,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     private static void writeMobDefinition(
-            FriendlyByteBuf buffer,
+            RegistryFriendlyByteBuf buffer,
             CraftScopeMobDropCatalog.MobDefinition definition
     ) {
         buffer.writeResourceLocation(
@@ -230,7 +233,7 @@ public final class CraftScopeMobDropRuntimeCodec {
 
     private static CraftScopeMobDropCatalog.MobDefinition
     readMobDefinition(
-            FriendlyByteBuf buffer
+            RegistryFriendlyByteBuf buffer
     ) {
         ResourceLocation entityTypeId =
                 buffer.readResourceLocation();
@@ -291,7 +294,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     private static void writeDropDefinition(
-            FriendlyByteBuf buffer,
+            RegistryFriendlyByteBuf buffer,
             CraftScopeMobDropCatalog.DropDefinition drop
     ) {
         buffer.writeResourceLocation(
@@ -323,6 +326,11 @@ public final class CraftScopeMobDropRuntimeCodec {
                 drop.targetRequirements()
         );
 
+        writeItemIdentity(
+                buffer,
+                drop.itemIdentity()
+        );
+
         /*
          * Transformation data.
          *
@@ -348,6 +356,11 @@ public final class CraftScopeMobDropRuntimeCodec {
                     transformedItemId
             );
 
+            writeItemIdentity(
+                    buffer,
+                    drop.transformedItemIdentity()
+            );
+
             writeStrings(
                     buffer,
                     drop.baseTransformationRequirements()
@@ -362,7 +375,7 @@ public final class CraftScopeMobDropRuntimeCodec {
 
     private static CraftScopeMobDropCatalog.DropDefinition
     readDropDefinition(
-            FriendlyByteBuf buffer
+            RegistryFriendlyByteBuf buffer
     ) {
         ResourceLocation itemId =
                 buffer.readResourceLocation();
@@ -404,7 +417,15 @@ public final class CraftScopeMobDropRuntimeCodec {
                         buffer
                 );
 
+        CraftScopeItemIdentity itemIdentity =
+                readItemIdentity(
+                        buffer
+                );
+
         ResourceLocation transformedItemId =
+                null;
+
+        CraftScopeItemIdentity transformedItemIdentity =
                 null;
 
         List<String> baseTransformationRequirements =
@@ -420,6 +441,11 @@ public final class CraftScopeMobDropRuntimeCodec {
 
             transformedItemId =
                     buffer.readResourceLocation();
+
+            transformedItemIdentity =
+                    readItemIdentity(
+                            buffer
+                    );
 
             baseTransformationRequirements =
                     readStrings(
@@ -442,12 +468,51 @@ public final class CraftScopeMobDropRuntimeCodec {
                 targetRequirements,
                 transformedItemId,
                 baseTransformationRequirements,
-                transformationRequirements
+                transformationRequirements,
+                itemIdentity,
+                transformedItemIdentity
         );
     }
 
+    private static void writeItemIdentity(
+            RegistryFriendlyByteBuf buffer,
+            CraftScopeItemIdentity identity
+    ) {
+        ItemStack stack =
+                identity == null
+                        ? ItemStack.EMPTY
+                        : identity.createStack();
+
+        /*
+         * Minecraft's own ItemStack codec transports the complete
+         * component patch, including vanilla and modded components.
+         */
+        ItemStack.OPTIONAL_STREAM_CODEC.encode(
+                buffer,
+                stack
+        );
+    }
+
+    private static CraftScopeItemIdentity readItemIdentity(
+            RegistryFriendlyByteBuf buffer
+    ) {
+        ItemStack stack =
+                ItemStack.OPTIONAL_STREAM_CODEC.decode(
+                        buffer
+                );
+
+        if (stack == null
+                || stack.isEmpty()) {
+
+            return null;
+        }
+
+        return CraftScopeItemIdentity.fromStack(
+                stack
+        );
+    }
     private static void writeStrings(
-            FriendlyByteBuf buffer,
+            RegistryFriendlyByteBuf buffer,
             List<String> values
     ) {
         List<String> safeValues =
@@ -483,7 +548,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     private static List<String> readStrings(
-            FriendlyByteBuf buffer
+            RegistryFriendlyByteBuf buffer
     ) {
         int count =
                 readCount(
@@ -514,7 +579,7 @@ public final class CraftScopeMobDropRuntimeCodec {
     }
 
     private static int readCount(
-            FriendlyByteBuf buffer,
+            RegistryFriendlyByteBuf buffer,
             String description,
             int maximum
     ) {

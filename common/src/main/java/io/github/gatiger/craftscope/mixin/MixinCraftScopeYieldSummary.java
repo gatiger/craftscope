@@ -123,7 +123,8 @@ public abstract class MixinCraftScopeYieldSummary {
                         resource.acceptedVariantIds(),
                         minimum,
                         maximum,
-                        expected
+                        expected,
+                        resource.itemIdentity()
                 )
         );
     }

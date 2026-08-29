@@ -13,6 +13,7 @@ import io.github.gatiger.craftscope.production.CraftScopeProductionSummary;
 import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
 import io.github.gatiger.craftscope.production.CraftScopeResourceKind;
+import io.github.gatiger.craftscope.project.CraftScopeItemStackPersistence;
 import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.project.CraftScopeProjectManager;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
@@ -4965,6 +4966,40 @@ public class CraftScopeProjectScreen
             return ItemStack.EMPTY;
         }
 
+        /*
+         * Prefer the complete serialized ItemStack so data-component
+         * identity survives project save/load.
+         *
+         * Old projects have no serialized stack and fall through to
+         * the original ResourceLocation-only behavior below.
+         */
+        if (minecraft != null
+                && minecraft.level != null) {
+
+            ItemStack storedStack =
+                    CraftScopeItemStackPersistence.decode(
+                            project.getTargetItemStackJson(),
+                            minecraft
+                                    .level
+                                    .registryAccess()
+                    );
+
+            if (!storedStack.isEmpty()) {
+
+                ResourceLocation storedId =
+                        BuiltInRegistries.ITEM.getKey(
+                                storedStack.getItem()
+                        );
+
+                if (itemId.equals(
+                        storedId.toString()
+                )) {
+
+                    return storedStack;
+                }
+            }
+        }
+
         ResourceLocation location =
                 ResourceLocation.tryParse(itemId);
 
@@ -5013,7 +5048,23 @@ public class CraftScopeProjectScreen
                         stack.getItem()
                 );
 
-        project.setTargetItemId(itemId.toString());
+        project.setTargetItemId(
+                itemId.toString()
+        );
+
+        if (minecraft != null
+                && minecraft.level != null) {
+
+            project.setTargetItemStackJson(
+                    CraftScopeItemStackPersistence.encode(
+                            stack,
+                            minecraft
+                                    .level
+                                    .registryAccess()
+                    )
+            );
+        }
+
         project.clearRecipeOverrides();
 
         expandedNodes.clear();

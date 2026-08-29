@@ -217,20 +217,30 @@ public final class CraftScopeProductionRouteNormalizer {
 
         sorted.sort(String::compareTo);
 
-        return resource.kind()
-                + ":"
-                + String.join(
-                        ",",
-                        sorted
-                )
-                + ":"
-                + resource.amount()
-                + ":"
-                + resource.unit()
-                + ":"
-                + resource.consumed()
-                + ":chance="
-                + resource.chance();
+        String key =
+                resource.kind()
+                        + ":"
+                        + String.join(
+                                ",",
+                                sorted
+                        )
+                        + ":"
+                        + resource.amount()
+                        + ":"
+                        + resource.unit()
+                        + ":"
+                        + resource.consumed()
+                        + ":chance="
+                        + resource.chance();
+
+        if (resource.hasCustomItemComponents()) {
+
+            key +=
+                    ":itemIdentity="
+                            + resource.itemIdentity();
+        }
+
+        return key;
     }
 
     /*
@@ -424,7 +434,10 @@ public final class CraftScopeProductionRouteNormalizer {
                             representative.unit(),
                             representative.consumed(),
                             representative.chance(),
-                            sortedVariants
+                            sortedVariants,
+                            representative.hasCustomItemComponents()
+                                    ? representative.itemIdentity()
+                                    : null
                     )
             );
         }

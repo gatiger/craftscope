@@ -630,15 +630,32 @@ public record CraftScopeProductionSummary(
          * ResourceAccumulator would attach one probability to a
          * mixed amount and misstate the expected yield.
          */
-        return resource.kind()
-                + "|"
-                + String.join(",", variants)
-                + "|"
-                + resource.unit()
-                + "|chance="
-                + Double.toHexString(
-                        resource.chance()
-                );
+        String key =
+                resource.kind()
+                        + "|"
+                        + String.join(",", variants)
+                        + "|"
+                        + resource.unit()
+                        + "|chance="
+                        + Double.toHexString(
+                                resource.chance()
+                        );
+
+        /*
+         * Component-bearing items must remain distinct even when
+         * they share the same registry ID.
+         *
+         * Poison Tipped Arrow and Slowness Tipped Arrow are both
+         * minecraft:tipped_arrow, but they are not interchangeable.
+         */
+        if (resource.hasCustomItemComponents()) {
+
+            key +=
+                    "|itemIdentity="
+                            + resource.itemIdentity();
+        }
+
+        return key;
     }
 
     private static CraftScopeResourceAmount copyResource(
@@ -654,7 +671,8 @@ public record CraftScopeProductionSummary(
                 resource.unit(),
                 consumed,
                 resource.chance(),
-                resource.acceptedVariantIds()
+                resource.acceptedVariantIds(),
+                resource.itemIdentity()
         );
     }
 

@@ -557,9 +557,45 @@ public final class CraftScopeMobDropCatalog {
             List<String> targetRequirements,
             ResourceLocation transformedItemId,
             List<String> baseTransformationRequirements,
-            List<String> transformationRequirements
+            List<String> transformationRequirements,
+            CraftScopeItemIdentity itemIdentity,
+            CraftScopeItemIdentity transformedItemIdentity
     ) {
 
+        /*
+         * Backward-compatible transformation constructor.
+         *
+         * Existing furnace-smelt processing does not yet need an
+         * explicit component identity, so its existing constructor
+         * remains valid.
+         */
+        public DropDefinition(
+                ResourceLocation itemId,
+                DropMode mode,
+                long minimum,
+                long maximum,
+                long amount,
+                double chance,
+                List<String> targetRequirements,
+                ResourceLocation transformedItemId,
+                List<String> baseTransformationRequirements,
+                List<String> transformationRequirements
+        ) {
+            this(
+                    itemId,
+                    mode,
+                    minimum,
+                    maximum,
+                    amount,
+                    chance,
+                    targetRequirements,
+                    transformedItemId,
+                    baseTransformationRequirements,
+                    transformationRequirements,
+                    null,
+                    null
+            );
+        }
         /*
          * Backward-compatible constructor.
          *
@@ -609,25 +645,57 @@ public final class CraftScopeMobDropCatalog {
                 );
             }
 
-            if (mode == DropMode.CHANCE) {
+            if (mode == DropMode.CHANCE
+                    && amount <= 0L) {
 
-                if (amount <= 0L) {
+                throw new IllegalArgumentException(
+                        "Chance drop amount must be positive"
+                );
+            }
+
+            /*
+             * RANGE drops can also be probabilistic, so chance is
+             * validated for every drop mode.
+             */
+            if (Double.isNaN(
+                    chance
+            )
+                    || Double.isInfinite(
+                    chance
+            )
+                    || chance < 0.0D
+                    || chance > 1.0D) {
+
+                throw new IllegalArgumentException(
+                        "Chance must be between 0 and 1"
+                );
+            }
+
+            if (itemIdentity != null
+                    && !itemId.equals(
+                    itemIdentity.itemId()
+            )) {
+
+                throw new IllegalArgumentException(
+                        "Mob drop item identity does not match item ID"
+                );
+            }
+
+            if (transformedItemIdentity != null) {
+
+                if (transformedItemId == null) {
+
                     throw new IllegalArgumentException(
-                            "Chance drop amount must be positive"
+                            "Transformed item identity requires a transformed item"
                     );
                 }
 
-                if (Double.isNaN(
-                        chance
-                )
-                        || Double.isInfinite(
-                        chance
-                )
-                        || chance < 0.0D
-                        || chance > 1.0D) {
+                if (!transformedItemId.equals(
+                        transformedItemIdentity.itemId()
+                )) {
 
                     throw new IllegalArgumentException(
-                            "Chance must be between 0 and 1"
+                            "Transformed item identity does not match transformed item ID"
                     );
                 }
             }

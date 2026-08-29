@@ -63,11 +63,6 @@ public final class CraftScopeVanillaMobDropRouteProvider
             return List.of();
         }
 
-        ResourceLocation targetId =
-                BuiltInRegistries.ITEM.getKey(
-                        target.getItem()
-                );
-
         List<CraftScopeProductionRoute> routes =
                 new ArrayList<>();
 
@@ -76,7 +71,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
             addRouteIfMatching(
                     definition,
-                    targetId,
+                    target,
                     OutcomeVariant.BASE,
                     routes
             );
@@ -87,7 +82,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
                 addRouteIfMatching(
                         definition,
-                        targetId,
+                        target,
                         OutcomeVariant.TRANSFORMED,
                         routes
                 );
@@ -101,14 +96,25 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static void addRouteIfMatching(
             CraftScopeMobDropCatalog.MobDefinition definition,
-            ResourceLocation targetId,
+            ItemStack target,
             OutcomeVariant variant,
             List<CraftScopeProductionRoute> routes
     ) {
+        if (target == null
+                || target.isEmpty()) {
+
+            return;
+        }
+
+        ResourceLocation targetId =
+                BuiltInRegistries.ITEM.getKey(
+                        target.getItem()
+                );
+
         CraftScopeMobDropCatalog.DropDefinition targetDrop =
                 findTargetDrop(
                         definition,
-                        targetId,
+                        target,
                         variant
                 );
 
@@ -125,7 +131,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
         CraftScopeResourceAmount targetOutput =
                 findTargetOutput(
                         outputs,
-                        targetId
+                        target
                 );
 
         if (targetOutput == null) {
@@ -237,14 +243,20 @@ public final class CraftScopeVanillaMobDropRouteProvider
     private static CraftScopeMobDropCatalog.DropDefinition
     findTargetDrop(
             CraftScopeMobDropCatalog.MobDefinition definition,
-            ResourceLocation targetId,
+            ItemStack target,
             OutcomeVariant variant
     ) {
         if (definition == null
-                || targetId == null) {
+                || target == null
+                || target.isEmpty()) {
 
             return null;
         }
+
+        ResourceLocation targetId =
+                BuiltInRegistries.ITEM.getKey(
+                        target.getItem()
+                );
 
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
@@ -255,9 +267,45 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             variant
                     );
 
-            if (targetId.equals(
+            if (!targetId.equals(
                     effectiveId
             )) {
+
+                continue;
+            }
+
+            CraftScopeItemIdentity identity =
+                    getEffectiveItemIdentity(
+                            drop,
+                            variant
+                    );
+
+            /*
+             * A component-aware drop must match the target's exact
+             * Minecraft item+component identity.
+             */
+            if (identity != null) {
+
+                if (identity.matches(
+                        target
+                )) {
+
+                    return drop;
+                }
+
+                continue;
+            }
+
+            /*
+             * A definition without explicit component metadata
+             * represents the ordinary/default item.
+             *
+             * Do not let that route claim arbitrary component-bearing
+             * variants that merely share the same registry ID.
+             */
+            if (target
+                    .getComponentsPatch()
+                    .isEmpty()) {
 
                 return drop;
             }
@@ -285,7 +333,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
             CraftScopeResourceAmount output =
                     buildOutput(
                             drop,
-                            effectiveItemId
+                            effectiveItemId,
+                            variant
                     );
 
             if (output != null) {
@@ -318,9 +367,26 @@ public final class CraftScopeVanillaMobDropRouteProvider
         return drop.itemId();
     }
 
+    private static CraftScopeItemIdentity getEffectiveItemIdentity(
+            CraftScopeMobDropCatalog.DropDefinition drop,
+            OutcomeVariant variant
+    ) {
+        if (drop == null) {
+            return null;
+        }
+
+        if (variant == OutcomeVariant.TRANSFORMED
+                && drop.hasTransformation()) {
+
+            return drop.transformedItemIdentity();
+        }
+
+        return drop.itemIdentity();
+    }
     private static CraftScopeResourceAmount buildOutput(
             CraftScopeMobDropCatalog.DropDefinition drop,
-            ResourceLocation effectiveItemId
+            ResourceLocation effectiveItemId,
+            OutcomeVariant variant
     ) {
         if (drop == null
                 || effectiveItemId == null) {
@@ -343,10 +409,18 @@ public final class CraftScopeVanillaMobDropRouteProvider
             return null;
         }
 
-        ItemStack stack =
-                new ItemStack(
-                        item
+        CraftScopeItemIdentity itemIdentity =
+                getEffectiveItemIdentity(
+                        drop,
+                        variant
                 );
+
+        ItemStack stack =
+                itemIdentity == null
+                        ? new ItemStack(
+                        item
+                )
+                        : itemIdentity.createStack();
 
         ResourceLocation id =
                 BuiltInRegistries.ITEM.getKey(
@@ -366,7 +440,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     drop.chance(),
                     List.of(
                             id
-                    )
+                    ),
+                    itemIdentity
             );
         }
 
@@ -424,7 +499,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 ),
                 effectiveMinimum,
                 drop.maximum(),
-                expected
+                expected,
+                itemIdentity
         );
     }
 
@@ -487,10 +563,11 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static CraftScopeResourceAmount findTargetOutput(
             List<CraftScopeResourceAmount> outputs,
-            ResourceLocation targetId
+            ItemStack target
     ) {
         if (outputs == null
-                || targetId == null) {
+                || target == null
+                || target.isEmpty()) {
 
             return null;
         }
@@ -499,8 +576,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 outputs) {
 
             if (output != null
-                    && targetId.equals(
-                    output.id()
+                    && output.accepts(
+                    target
             )) {
 
                 return output;
