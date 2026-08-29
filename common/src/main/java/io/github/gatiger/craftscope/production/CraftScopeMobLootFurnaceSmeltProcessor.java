@@ -547,6 +547,15 @@ public final class CraftScopeMobLootFurnaceSmeltProcessor {
          *
          * Only one unique output is accepted.
          */
+        if (results.isEmpty()) {
+
+            return inputItemId;
+        }
+
+        /*
+         * Multiple different smelting outputs are ambiguous.
+         * Never guess which result the loot function would select.
+         */
         if (results.size() != 1) {
 
             return null;

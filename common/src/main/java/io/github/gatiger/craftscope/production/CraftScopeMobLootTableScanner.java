@@ -133,10 +133,34 @@ public final class CraftScopeMobLootTableScanner {
                 result.serializationFailures()
         );
 
+        /*
+         * Resolve the simple nested-loot-table shape before any other
+         * processor sees the data.
+         *
+         * This turns safe references such as:
+         *
+         *     minecraft:gameplay/fishing/fish
+         *
+         * into the direct item branches represented by that table.
+         */
+        CraftScopeMobLootNestedTableProcessor.PreparedScan
+                nestedPrepared =
+                CraftScopeMobLootNestedTableProcessor.prepare(
+                        result,
+                        server
+                );
+
+        Constants.LOG.info(
+                "CraftScope nested-loot preprocessing: {} references found, {} expanded, {} item branches inlined",
+                nestedPrepared.referencesFound(),
+                nestedPrepared.referencesExpanded(),
+                nestedPrepared.itemBranchesInlined()
+        );
+
         CraftScopeMobLootFurnaceSmeltProcessor.PreparedScan
                 furnacePrepared =
                 CraftScopeMobLootFurnaceSmeltProcessor.prepare(
-                        result,
+                        nestedPrepared.scanResult(),
                         server.getRecipeManager(),
                         server.registryAccess()
                 );
