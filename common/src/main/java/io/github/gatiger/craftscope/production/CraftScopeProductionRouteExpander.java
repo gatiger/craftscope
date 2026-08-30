@@ -756,7 +756,11 @@ public final class CraftScopeProductionRouteExpander {
                         selectedRecipe
                 )) {
 
-                    return candidate;
+                    return CraftScopeRecipeVariantFamilyPolicy
+                            .adaptRoute(
+                                    candidate,
+                                    input
+                            );
                 }
             }
         }
@@ -789,7 +793,11 @@ public final class CraftScopeProductionRouteExpander {
             }
         }
 
-        return best;
+        return CraftScopeRecipeVariantFamilyPolicy
+                .adaptRoute(
+                        best,
+                        input
+                );
     }
 
     private static ResourceLocation getSelectedRecipeForInput(

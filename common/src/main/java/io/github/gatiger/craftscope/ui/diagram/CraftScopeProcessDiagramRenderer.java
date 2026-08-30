@@ -4,6 +4,7 @@ import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
 import io.github.gatiger.craftscope.production.CraftScopeProductionGraph;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
+import io.github.gatiger.craftscope.production.CraftScopeRecipeVariantFamilyPolicy;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
 import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
@@ -49,6 +50,59 @@ public final class CraftScopeProcessDiagramRenderer {
      */
     private static final long GRAPH_INPUT_CYCLE_MS =
             1600L;
+
+    /*
+     * Large graphs may outgrow the embedded Process Diagram panel.
+     *
+     * Scale the entire diagram proportionally instead of shrinking
+     * individual UI pieces independently.
+     *
+     * Never go below 72%. Beyond that point the dedicated
+     * "View Full Production" screen is the better presentation.
+     */
+    /*
+     * 78% is the smallest embedded diagram size CraftScope should
+     * use. Smaller than this becomes noticeably harder to read.
+     *
+     * Large routes continue in the dedicated Full Production view
+     * rather than shrinking further.
+     */
+    private static final float MIN_ADAPTIVE_DIAGRAM_SCALE =
+            0.78F;
+
+    private static final int LARGE_DIAGRAM_STEP_THRESHOLD =
+            5;
+
+    /*
+     * Six production steps can still be displayed at the minimum
+     * readable embedded scale.
+     *
+     * Larger routes keep the readable scale and use a continuation
+     * marker rather than attempting to squeeze the entire graph into
+     * the Project screen.
+     */
+    private static final int EMBEDDED_COMPLETE_STEP_LIMIT =
+            6;
+
+    private static final int CONTINUATION_RESERVE_WIDTH =
+            142;
+
+    private static final int CONTINUATION_PANEL_WIDTH =
+            126;
+
+    private static final int CONTINUATION_PANEL_HEIGHT =
+            62;
+
+    /*
+     * A diagram this large already has enough room and does not need
+     * compact rendering. These values are Minecraft GUI coordinates,
+     * not physical monitor pixels.
+     */
+    private static final int COMFORTABLE_DIAGRAM_WIDTH =
+            760;
+
+    private static final int COMFORTABLE_DIAGRAM_HEIGHT =
+            320;
 
     private CraftScopeProcessDiagramRenderer() {
     }
@@ -106,6 +160,66 @@ public final class CraftScopeProcessDiagramRenderer {
             return;
         }
 
+        float renderScale =
+                getAdaptiveDiagramScale(
+                        route,
+                        left,
+                        top,
+                        right,
+                        bottom
+                );
+
+        boolean scaled =
+                renderScale < 0.999F;
+
+        /*
+         * Determine this once for the entire render pass so both the
+         * graph clipping and final continuation marker can use it.
+         */
+        boolean continuedInFullProduction =
+                shouldUseEmbeddedContinuation(
+                        route,
+                        renderScale
+                );
+
+        int continuationLeft =
+                getContinuationLeft(
+                        left,
+                        right
+                );
+
+        float scaleCenterX =
+                (left + right) / 2.0F;
+
+        float scaleCenterY =
+                (top + bottom) / 2.0F;
+
+        if (scaled) {
+            graphics.pose()
+                    .pushPose();
+
+            graphics.pose()
+                    .translate(
+                            scaleCenterX,
+                            scaleCenterY,
+                            0.0F
+                    );
+
+            graphics.pose()
+                    .scale(
+                            renderScale,
+                            renderScale,
+                            1.0F
+                    );
+
+            graphics.pose()
+                    .translate(
+                            -scaleCenterX,
+                            -scaleCenterY,
+                            0.0F
+                    );
+        }
+
         String routeTitle =
                 route.sourceModName()
                         .getString()
@@ -145,6 +259,11 @@ public final class CraftScopeProcessDiagramRenderer {
                     CraftScopeUiTheme.TEXT_MUTED
             );
 
+            if (scaled) {
+                graphics.pose()
+                        .popPose();
+            }
+
             return;
         }
 
@@ -165,18 +284,42 @@ public final class CraftScopeProcessDiagramRenderer {
             int toIndex =
                     connection.toNodeIndex();
 
+            NodePosition fromPosition =
+                    layout.positions().get(
+                            fromIndex
+                    );
+
+            NodePosition toPosition =
+                    layout.positions().get(
+                            toIndex
+                    );
+
+            if (!isVisibleBeforeContinuation(
+                    fromPosition,
+                    continuedInFullProduction,
+                    renderScale,
+                    left,
+                    right
+            )
+                    || !isVisibleBeforeContinuation(
+                    toPosition,
+                    continuedInFullProduction,
+                    renderScale,
+                    left,
+                    right
+            )) {
+
+                continue;
+            }
+
             boolean highlighted =
                     selectedNodeIndex == fromIndex
                             || selectedNodeIndex == toIndex;
 
             drawConnection(
                     graphics,
-                    layout.positions().get(
-                            fromIndex
-                    ),
-                    layout.positions().get(
-                            toIndex
-                    ),
+                    fromPosition,
+                    toPosition,
                     highlighted
             );
         }
@@ -185,12 +328,45 @@ public final class CraftScopeProcessDiagramRenderer {
              i < layout.nodes().size();
              i++) {
 
+            NodePosition position =
+                    layout.positions().get(
+                            i
+                    );
+
+            if (!isVisibleBeforeContinuation(
+                    position,
+                    continuedInFullProduction,
+                    renderScale,
+                    left,
+                    right
+            )) {
+
+                continue;
+            }
+
             drawNode(
                     graphics,
                     font,
                     layout.nodes().get(i),
-                    layout.positions().get(i),
+                    position,
                     selectedNodeIndex == i
+            );
+        }
+
+        if (scaled) {
+            graphics.pose()
+                    .popPose();
+        }
+
+        if (continuedInFullProduction) {
+
+            drawContinuationMarker(
+                    graphics,
+                    font,
+                    left,
+                    top,
+                    right,
+                    bottom
             );
         }
     }
@@ -225,6 +401,63 @@ public final class CraftScopeProcessDiagramRenderer {
                         requestedTargetCount
                 );
 
+        float renderScale =
+                getAdaptiveDiagramScale(
+                        route,
+                        left,
+                        top,
+                        right,
+                        bottom
+                );
+
+        boolean continuedInFullProduction =
+                shouldUseEmbeddedContinuation(
+                        route,
+                        renderScale
+                );
+
+        if (continuedInFullProduction) {
+
+            int continuationLeft =
+                    getContinuationLeft(
+                            left,
+                            right
+                    );
+
+            if (mouseX
+                    >= continuationLeft - 8) {
+
+                return null;
+            }
+        }
+
+        double logicalMouseX =
+                mouseX;
+
+        double logicalMouseY =
+                mouseY;
+
+        if (renderScale < 0.999F) {
+
+            double centerX =
+                    (left + right) / 2.0D;
+
+            double centerY =
+                    (top + bottom) / 2.0D;
+
+            logicalMouseX =
+                    centerX
+                            + (
+                            mouseX - centerX
+                    ) / renderScale;
+
+            logicalMouseY =
+                    centerY
+                            + (
+                            mouseY - centerY
+                    ) / renderScale;
+        }
+
         for (int i = 0;
              i < layout.positions().size();
              i++) {
@@ -232,10 +465,21 @@ public final class CraftScopeProcessDiagramRenderer {
             NodePosition position =
                     layout.positions().get(i);
 
-            if (mouseX >= position.x()
-                    && mouseX < position.right()
-                    && mouseY >= position.y()
-                    && mouseY < position.bottom()) {
+            if (!isVisibleBeforeContinuation(
+                    position,
+                    continuedInFullProduction,
+                    renderScale,
+                    left,
+                    right
+            )) {
+
+                continue;
+            }
+
+            if (logicalMouseX >= position.x()
+                    && logicalMouseX < position.right()
+                    && logicalMouseY >= position.y()
+                    && logicalMouseY < position.bottom()) {
 
                 return layout.nodes()
                         .get(i)
@@ -316,6 +560,362 @@ public final class CraftScopeProcessDiagramRenderer {
                 .getString();
     }
 
+    /*
+     * ---------------------------------------------------------
+     * Adaptive embedded-diagram scaling
+     * ---------------------------------------------------------
+     */
+
+    private static float getAdaptiveDiagramScale(
+            CraftScopeProductionRoute route,
+            int left,
+            int top,
+            int right,
+            int bottom
+    ) {
+        if (route == null) {
+            return 1.0F;
+        }
+
+        int stepCount =
+                route.steps().size();
+
+        if (stepCount
+                < LARGE_DIAGRAM_STEP_THRESHOLD) {
+
+            return 1.0F;
+        }
+
+        int availableWidth =
+                Math.max(
+                        1,
+                        right - left
+                );
+
+        int availableHeight =
+                Math.max(
+                        1,
+                        bottom - top
+                );
+
+        /*
+         * Full Production normally lands here: it already has enough
+         * room, so preserve the standard 100% diagram size.
+         */
+        if (availableWidth
+                >= COMFORTABLE_DIAGRAM_WIDTH
+                && availableHeight
+                >= COMFORTABLE_DIAGRAM_HEIGHT) {
+
+            return 1.0F;
+        }
+
+        /*
+         * Embedded compact levels.
+         *
+         * 5 steps:
+         *     modest reduction
+         *
+         * 6 steps:
+         *     larger reduction -- this is the size of the current
+         *     Enchanting Table test graph.
+         *
+         * 7+:
+         *     minimum embedded size. Use Full Production for anything
+         *     that still needs more room.
+         */
+        float scale;
+
+        if (stepCount == 5) {
+
+            scale =
+                    0.84F;
+
+        } else {
+
+            /*
+             * Six or more steps have reached CraftScope's minimum
+             * readable embedded size.
+             *
+             * Routes larger than the embedded view can hold use the
+             * continuation marker instead of shrinking further.
+             */
+            scale =
+                    MIN_ADAPTIVE_DIAGRAM_SCALE;
+        }
+
+        return Math.max(
+                MIN_ADAPTIVE_DIAGRAM_SCALE,
+                Math.min(
+                        1.0F,
+                        scale
+                )
+        );
+    }
+    private static boolean isVisibleBeforeContinuation(
+            NodePosition position,
+            boolean continuedInFullProduction,
+            float renderScale,
+            int left,
+            int right
+    ) {
+        if (!continuedInFullProduction) {
+            return true;
+        }
+
+        double centerX =
+                (
+                        left
+                                + right
+                ) / 2.0D;
+
+        double visualLeftCutoff =
+                left + 4.0D;
+
+        double visualRightCutoff =
+                getContinuationLeft(
+                        left,
+                        right
+                )
+                        - 8.0D;
+
+        /*
+         * Undo the render transform so both cutoffs can be compared
+         * against logical NodePosition coordinates.
+         */
+        double logicalLeftCutoff =
+                centerX
+                        + (
+                        visualLeftCutoff
+                                - centerX
+                ) / Math.max(
+                        0.001F,
+                        renderScale
+                );
+
+        double logicalRightCutoff =
+                centerX
+                        + (
+                        visualRightCutoff
+                                - centerX
+                ) / Math.max(
+                        0.001F,
+                        renderScale
+                );
+
+        /*
+         * Never show a partially clipped node.
+         */
+        return position.x()
+                >= logicalLeftCutoff
+                && position.right()
+                <= logicalRightCutoff;
+    }
+
+    /*
+     * Public interaction helper for the embedded continuation card.
+     *
+     * The Project screen can use this without duplicating the
+     * continuation-policy thresholds or marker dimensions.
+     */
+    public static boolean isContinuationMarkerHit(
+            CraftScopeProductionRoute route,
+            int left,
+            int top,
+            int right,
+            int bottom,
+            double mouseX,
+            double mouseY
+    ) {
+        if (route == null) {
+            return false;
+        }
+
+        float renderScale =
+                getAdaptiveDiagramScale(
+                        route,
+                        left,
+                        top,
+                        right,
+                        bottom
+                );
+
+        if (!shouldUseEmbeddedContinuation(
+                route,
+                renderScale
+        )) {
+
+            return false;
+        }
+
+        int markerRight =
+                right - 8;
+
+        int markerLeft =
+                markerRight
+                        - CONTINUATION_PANEL_WIDTH;
+
+        int usableTop =
+                top
+                        + ROUTE_TITLE_HEIGHT;
+
+        int markerTop =
+                usableTop
+                        + Math.max(
+                        4,
+                        (
+                                bottom
+                                        - usableTop
+                                        - CONTINUATION_PANEL_HEIGHT
+                        ) / 2
+                );
+
+        int markerBottom =
+                markerTop
+                        + CONTINUATION_PANEL_HEIGHT;
+
+        return mouseX >= markerLeft
+                && mouseX < markerRight
+                && mouseY >= markerTop
+                && mouseY < markerBottom;
+    }
+    private static boolean shouldUseEmbeddedContinuation(
+            CraftScopeProductionRoute route,
+            float renderScale
+    ) {
+        if (route == null) {
+            return false;
+        }
+
+        /*
+         * Full Production normally renders at 100%, so it never
+         * enters this path.
+         *
+         * The embedded Project view reaches the minimum scale first.
+         */
+        return route.steps().size()
+                > EMBEDDED_COMPLETE_STEP_LIMIT
+                && renderScale
+                <= MIN_ADAPTIVE_DIAGRAM_SCALE + 0.001F;
+    }
+
+    private static int getContinuationLeft(
+            int left,
+            int right
+    ) {
+        return Math.max(
+                left + 40,
+                right
+                        - CONTINUATION_RESERVE_WIDTH
+        );
+    }
+
+    private static void drawContinuationMarker(
+            GuiGraphics graphics,
+            Font font,
+            int left,
+            int top,
+            int right,
+            int bottom
+    ) {
+        int markerRight =
+                right - 8;
+
+        int markerLeft =
+                markerRight
+                        - CONTINUATION_PANEL_WIDTH;
+
+        int usableTop =
+                top
+                        + ROUTE_TITLE_HEIGHT;
+
+        int markerTop =
+                usableTop
+                        + Math.max(
+                        4,
+                        (
+                                bottom
+                                        - usableTop
+                                        - CONTINUATION_PANEL_HEIGHT
+                        ) / 2
+                );
+
+        int markerBottom =
+                markerTop
+                        + CONTINUATION_PANEL_HEIGHT;
+
+        int centerX =
+                markerLeft
+                        + CONTINUATION_PANEL_WIDTH / 2;
+
+        int centerY =
+                markerTop
+                        + CONTINUATION_PANEL_HEIGHT / 2;
+
+        /*
+         * Small arrow leading into the continuation marker.
+         */
+        drawRightArrow(
+                graphics,
+                Math.max(
+                        left + 4,
+                        markerLeft - 22
+                ),
+                markerLeft - 4,
+                centerY,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        CraftScopeUiTheme.drawPanel(
+                graphics,
+                markerLeft,
+                markerTop,
+                markerRight,
+                markerBottom,
+                CraftScopeUiTheme.PANEL_BACKGROUND_ALT
+        );
+
+        CraftScopeUiTheme.drawBorder(
+                graphics,
+                markerLeft,
+                markerTop,
+                markerRight,
+                markerBottom,
+                CraftScopeUiTheme.ACCENT
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "...",
+                centerX,
+                markerTop + 7,
+                CraftScopeUiTheme.ACCENT_HOVER
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Continued in",
+                centerX,
+                markerTop + 20,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "Full Production",
+                centerX,
+                markerTop + 33,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+
+        graphics.drawCenteredString(
+                font,
+                "View",
+                centerX,
+                markerTop + 46,
+                CraftScopeUiTheme.TEXT_PRIMARY
+        );
+    }
     /*
      * ---------------------------------------------------------
      * Shared diagram layout
@@ -625,32 +1225,86 @@ public final class CraftScopeProcessDiagramRenderer {
                 );
 
         /*
-         * Each dependency depth contains:
+         * Determine which dependency depths require a dedicated
+         * convergence/input column.
          *
-         *     process | resource
+         * Normal depth:
          *
-         * Prefer the normal horizontal spacing, but shrink the gaps
-         * when the graph would otherwise extend beyond the diagram
-         * panel.
+         *     Process | Output
          *
-         * Node size remains unchanged so icons/text stay readable.
+         * Branching depth:
+         *
+         *     Inputs | Process | Output
+         *
+         * Keeping convergence horizontal prevents the rotating shared
+         * input node from colliding with branches above or below it.
          */
+        Map<Integer, Boolean> convergenceByDepth =
+                new LinkedHashMap<>();
+
+        for (CraftScopeProductionGraph.StepNode node :
+                graph.steps()) {
+
+            if (graph.incomingEdges(
+                    node.index()
+            ).size() <= 1) {
+
+                continue;
+            }
+
+            int depth =
+                    depthByStep.getOrDefault(
+                            node.index(),
+                            0
+                    );
+
+            convergenceByDepth.put(
+                    depth,
+                    true
+            );
+        }
+
         int depthCount =
                 maximumDepth + 1;
 
-        int totalNodeWidth =
-                depthCount
-                        * NODE_WIDTH
-                        * 2;
+        int totalColumns =
+                0;
+
+        int internalGapSlots =
+                0;
+
+        for (int depth = 0;
+             depth <= maximumDepth;
+             depth++) {
+
+            int columns =
+                    convergenceByDepth.getOrDefault(
+                            depth,
+                            false
+                    )
+                            ? 3
+                            : 2;
+
+            totalColumns +=
+                    columns;
+
+            internalGapSlots +=
+                    columns - 1;
+        }
 
         /*
-         * One gap exists inside every process/resource pair.
-         *
-         * Two additional gap-widths separate dependency depths.
+         * Two additional gap-widths separate each dependency depth.
          */
+        int interDepthGapSlots =
+                maximumDepth * 2;
+
         int gapSlots =
-                depthCount
-                        + maximumDepth * 2;
+                internalGapSlots
+                        + interDepthGapSlots;
+
+        int totalNodeWidth =
+                totalColumns
+                        * NODE_WIDTH;
 
         int availableGapWidth =
                 Math.max(
@@ -673,30 +1327,114 @@ public final class CraftScopeProcessDiagramRenderer {
                         )
                 );
 
-        int depthWidth =
-                NODE_WIDTH
-                        * 2
-                        + graphGap;
-
-        int depthGap =
-                graphGap
-                        * 2;
-
         int requiredWidth =
-                depthCount
-                        * depthWidth
-                        + maximumDepth
-                        * depthGap;
-
-        int startX =
-                left
-                        + Math.max(
-                        4,
-                        (
-                                diagramWidth
-                                        - requiredWidth
-                        ) / 2
+                totalNodeWidth
+                        + gapSlots
+                        * graphGap;
+        float adaptiveScale =
+                getAdaptiveDiagramScale(
+                        route,
+                        left,
+                        top,
+                        right,
+                        bottom
                 );
+
+        boolean continuedInFullProduction =
+                shouldUseEmbeddedContinuation(
+                        route,
+                        adaptiveScale
+                );
+
+        int startX;
+
+        if (continuedInFullProduction) {
+
+            double centerX =
+                    (
+                            left
+                                    + right
+                    ) / 2.0D;
+
+            double desiredVisualLeft =
+                    left + 8.0D;
+
+            /*
+             * Rendering scales around centerX:
+             *
+             * visual = center + (logical - center) * scale
+             *
+             * Solve that equation backward so the first logical
+             * graph column appears at left + 8 after scaling.
+             */
+            startX =
+                    (int) Math.round(
+                            centerX
+                                    + (
+                                    desiredVisualLeft
+                                            - centerX
+                            ) / Math.max(
+                                    0.001F,
+                                    adaptiveScale
+                            )
+                    );
+
+        } else {
+
+            startX =
+                    left
+                            + (
+                            diagramWidth
+                                    - requiredWidth
+                    ) / 2;
+        }
+
+        /*
+         * Precalculate the beginning of every dependency depth.
+         *
+         * This supports variable-width depths:
+         *
+         *     2 columns for ordinary flow
+         *     3 columns when several resources converge
+         */
+        Map<Integer, Integer> depthStartXByDepth =
+                new LinkedHashMap<>();
+
+        int depthCursorX =
+                startX;
+
+        for (int depth = 0;
+             depth <= maximumDepth;
+             depth++) {
+
+            depthStartXByDepth.put(
+                    depth,
+                    depthCursorX
+            );
+
+            int columns =
+                    convergenceByDepth.getOrDefault(
+                            depth,
+                            false
+                    )
+                            ? 3
+                            : 2;
+
+            depthCursorX +=
+                    columns
+                            * NODE_WIDTH
+                            + (
+                            columns - 1
+                    )
+                            * graphGap;
+
+            if (depth
+                    < maximumDepth) {
+
+                depthCursorX +=
+                        graphGap * 2;
+            }
+        }
 
         List<DiagramNode> nodes =
                 new ArrayList<>();
@@ -768,13 +1506,10 @@ public final class CraftScopeProcessDiagramRenderer {
 
             int depthStartY =
                     diagramTop
-                            + Math.max(
-                            4,
-                            (
-                                    diagramHeight
-                                            - groupHeight
-                            ) / 2
-                    );
+                            + (
+                            diagramHeight
+                                    - groupHeight
+                    ) / 2;
 
             int y =
                     depthStartY
@@ -784,12 +1519,28 @@ public final class CraftScopeProcessDiagramRenderer {
                                     + VERTICAL_GAP
                     );
 
+            int depthStartX =
+                    depthStartXByDepth.getOrDefault(
+                            depth,
+                            startX
+                    );
+
+            boolean depthHasConvergence =
+                    convergenceByDepth.getOrDefault(
+                            depth,
+                            false
+                    );
+
+            int inputX =
+                    depthStartX;
+
             int processX =
-                    startX
-                            + depth
-                            * (
-                            depthWidth
-                                    + depthGap
+                    depthStartX
+                            + (
+                            depthHasConvergence
+                                    ? NODE_WIDTH
+                                    + graphGap
+                                    : 0
                     );
 
             int outputX =
@@ -839,72 +1590,68 @@ public final class CraftScopeProcessDiagramRenderer {
 
             if (incomingEdges.size() > 1) {
 
-                int convergenceY =
-                        findConvergenceNodeY(
-                                y,
-                                diagramTop,
-                                bottom
+                long cycle =
+                        System.currentTimeMillis()
+                                / GRAPH_INPUT_CYCLE_MS;
+
+                int resourceIndex =
+                        (int) (
+                                cycle
+                                        % incomingEdges.size()
                         );
 
-                if (convergenceY >= 0) {
+                CraftScopeResourceAmount displayedInput =
+                        CraftScopeRecipeVariantFamilyPolicy
+                                .normalizeFamilyResource(
+                                        incomingEdges
+                                                .get(
+                                                        resourceIndex
+                                                )
+                                                .consumedResource()
+                                );
 
-                    long cycle =
-                            System.currentTimeMillis()
-                                    / GRAPH_INPUT_CYCLE_MS;
+                int convergenceNodeIndex =
+                        nodes.size();
 
-                    int resourceIndex =
-                            (int) (
-                                    cycle
-                                            % incomingEdges.size()
-                            );
+                nodes.add(
+                        DiagramNode.resource(
+                                displayedInput,
+                                safeMultiply(
+                                        displayedInput.amount(),
+                                        runs
+                                ),
+                                0
+                        )
+                );
 
-                    CraftScopeResourceAmount displayedInput =
-                            incomingEdges
-                                    .get(
-                                            resourceIndex
-                                    )
-                                    .consumedResource();
+                /*
+                 * Dedicated horizontal convergence column.
+                 *
+                 * The rotating shared-input node now occupies the
+                 * column immediately before its consuming process.
+                 * It cannot collide with branches above or below.
+                 */
+                positions.add(
+                        new NodePosition(
+                                inputX,
+                                y,
+                                NODE_WIDTH,
+                                NODE_HEIGHT
+                        )
+                );
 
-                    int convergenceNodeIndex =
-                            nodes.size();
+                convergenceNodeByStep.put(
+                        stepIndex,
+                        convergenceNodeIndex
+                );
 
-                    nodes.add(
-                            DiagramNode.resource(
-                                    displayedInput,
-                                    safeMultiply(
-                                            displayedInput.amount(),
-                                            runs
-                                    ),
-                                    0
-                            )
-                    );
-
-                    positions.add(
-                            new NodePosition(
-                                    processX,
-                                    convergenceY,
-                                    NODE_WIDTH,
-                                    NODE_HEIGHT
-                            )
-                    );
-
-                    convergenceNodeByStep.put(
-                            stepIndex,
-                            convergenceNodeIndex
-                    );
-
-                    /*
-                     * Shared inputs feed the actual process.
-                     */
-                    connections.add(
-                            new DiagramConnection(
-                                    convergenceNodeIndex,
-                                    processNodeIndex
-                            )
-                    );
-                }
+                connections.add(
+                        new DiagramConnection(
+                                convergenceNodeIndex,
+                                processNodeIndex
+                        )
+                );
             }
-
             CraftScopeResourceAmount flowOutput =
                     getGraphFlowOutput(
                             route,
@@ -2089,7 +2836,18 @@ public final class CraftScopeProcessDiagramRenderer {
          * This is required for tipped arrows, Ominous Bottle levels,
          * and future component-bearing vanilla/modded resources.
          */
-        if (resource.hasItemIdentity()) {
+        /*
+         * Exact component-bearing resources must preserve their exact
+         * ItemStack:
+         *
+         *     Poison Tipped Arrow
+         *     Ominous Bottle III
+         *
+         * Ordinary componentless resources, however, should continue
+         * into the acceptedVariantIds logic below so tag-backed
+         * families can rotate their icons.
+         */
+        if (resource.hasCustomItemComponents()) {
 
             ItemStack identityStack =
                     resource.createDisplayStack();
