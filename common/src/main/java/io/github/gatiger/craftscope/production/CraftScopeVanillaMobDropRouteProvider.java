@@ -106,19 +106,38 @@ public final class CraftScopeVanillaMobDropRouteProvider
             return;
         }
 
-        ResourceLocation targetId =
-                BuiltInRegistries.ITEM.getKey(
-                        target.getItem()
-                );
-
-        CraftScopeMobDropCatalog.DropDefinition targetDrop =
-                findTargetDrop(
+        List<CraftScopeMobDropCatalog.DropDefinition> targetDrops =
+                findTargetDrops(
                         definition,
                         target,
                         variant
                 );
 
-        if (targetDrop == null) {
+        for (CraftScopeMobDropCatalog.DropDefinition targetDrop :
+                targetDrops) {
+
+            addRouteForDrop(
+                    definition,
+                    target,
+                    variant,
+                    targetDrop,
+                    routes
+            );
+        }
+    }
+
+    private static void addRouteForDrop(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            ItemStack target,
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop,
+            List<CraftScopeProductionRoute> routes
+    ) {
+        if (definition == null
+                || target == null
+                || target.isEmpty()
+                || targetDrop == null) {
+
             return;
         }
 
@@ -184,7 +203,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
         String actionName =
                 getActionName(
                         mobName,
-                        variant
+                        variant,
+                        definition,
+                        targetDrop
                 );
 
         CraftScopeProductionMethod method =
@@ -202,7 +223,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 new CraftScopeProductionStep(
                         buildStepId(
                                 definition,
-                                variant
+                                variant,
+                                targetDrop
                         ),
                         Component.literal(
                                 actionName
@@ -219,7 +241,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         buildRouteId(
                                 definition,
                                 targetOutput.id(),
-                                variant
+                                variant,
+                                targetDrop
                         ),
                         sourceModId,
                         Component.literal(
@@ -230,7 +253,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         Component.literal(
                                 getRouteName(
                                         mobName,
-                                        variant
+                                        variant,
+                                        definition,
+                                        targetDrop
                                 )
                         ),
                         targetOutput,
@@ -242,8 +267,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
-    private static CraftScopeMobDropCatalog.DropDefinition
-    findTargetDrop(
+    private static List<CraftScopeMobDropCatalog.DropDefinition>
+    findTargetDrops(
             CraftScopeMobDropCatalog.MobDefinition definition,
             ItemStack target,
             OutcomeVariant variant
@@ -252,13 +277,16 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 || target == null
                 || target.isEmpty()) {
 
-            return null;
+            return List.of();
         }
 
         ResourceLocation targetId =
                 BuiltInRegistries.ITEM.getKey(
                         target.getItem()
                 );
+
+        List<CraftScopeMobDropCatalog.DropDefinition> matches =
+                new ArrayList<>();
 
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
@@ -283,8 +311,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     );
 
             /*
-             * A component-aware drop must match the target's exact
-             * Minecraft item+component identity.
+             * Component-aware drops must match the exact target
+             * ItemStack identity.
              */
             if (identity != null) {
 
@@ -292,30 +320,32 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         target
                 )) {
 
-                    return drop;
+                    matches.add(
+                            drop
+                    );
                 }
 
                 continue;
             }
 
             /*
-             * A definition without explicit component metadata
-             * represents the ordinary/default item.
-             *
-             * Do not let that route claim arbitrary component-bearing
-             * variants that merely share the same registry ID.
+             * Componentless definitions represent only the ordinary
+             * componentless form of an item.
              */
             if (target
                     .getComponentsPatch()
                     .isEmpty()) {
 
-                return drop;
+                matches.add(
+                        drop
+                );
             }
         }
 
-        return null;
+        return List.copyOf(
+                matches
+        );
     }
-
     private static List<CraftScopeResourceAmount> buildOutputs(
             CraftScopeMobDropCatalog.MobDefinition definition,
             ItemStack target,
@@ -965,16 +995,74 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static String getActionName(
             Component mobName,
-            OutcomeVariant variant
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
     ) {
         String base =
                 "Kill "
                         + mobName.getString();
 
+        /*
+         * The Process Diagram shows this action name directly.
+         *
+         * When two production routes use the same mob but require
+         * different kill conditions, the distinction therefore needs
+         * to be visible here rather than only in the Setup tab.
+         */
+        if (definition != null
+                && targetDrop != null) {
+
+            String entityId =
+                    definition
+                            .entityTypeId()
+                            .toString();
+
+            if ("minecraft:slime".equals(
+                    entityId
+            )
+                    || "minecraft:magma_cube".equals(
+                    entityId
+            )) {
+
+                FrogOutcome frogOutcome =
+                        getFrogOutcome(
+                                targetDrop.targetRequirements()
+                        );
+
+                if (frogOutcome == FrogOutcome.NOT_FROG) {
+
+                    base +=
+                            " (Non-Frog Kill)";
+
+                } else if (frogOutcome == FrogOutcome.FROG) {
+
+                    base +=
+                            " (Frog Kill)";
+
+                } else if (frogOutcome == FrogOutcome.WARM_FROG) {
+
+                    base +=
+                            " (Warm Frog Kill)";
+
+                } else if (frogOutcome == FrogOutcome.COLD_FROG) {
+
+                    base +=
+                            " (Cold Frog Kill)";
+
+                } else if (frogOutcome
+                        == FrogOutcome.TEMPERATE_FROG) {
+
+                    base +=
+                            " (Temperate Frog Kill)";
+                }
+            }
+        }
+
         if (variant == OutcomeVariant.TRANSFORMED) {
 
-            return base
-                    + " (Smelted Loot)";
+            base +=
+                    " (Smelted Loot)";
         }
 
         return base;
@@ -982,7 +1070,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static String getRouteName(
             Component mobName,
-            OutcomeVariant variant
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
     ) {
         String base =
                 mobName.getString()
@@ -994,7 +1084,55 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     + " (Smelted Loot)";
         }
 
+        /*
+         * Keep the ordinary Slime route name unchanged so existing
+         * projects remain as stable as possible.
+         *
+         * Only the new Frog-kill branch receives a suffix.
+         */
+        if (isSlimeFrogKillBranch(
+                definition,
+                targetDrop
+        )) {
+
+            return base
+                    + " (Frog Kill)";
+        }
+
         return base;
+    }
+
+    private static boolean isSlimeFrogKillBranch(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
+    ) {
+        if (definition == null
+                || targetDrop == null) {
+
+            return false;
+        }
+
+        if (!"minecraft:slime".equals(
+                definition
+                        .entityTypeId()
+                        .toString()
+        )) {
+
+            return false;
+        }
+
+        if (!"minecraft:slime_ball".equals(
+                targetDrop
+                        .itemId()
+                        .toString()
+        )) {
+
+            return false;
+        }
+
+        return getFrogOutcome(
+                targetDrop.targetRequirements()
+        ) == FrogOutcome.FROG;
     }
 
     private static ResourceLocation getProcessId(
@@ -1013,7 +1151,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static String buildStepId(
             CraftScopeMobDropCatalog.MobDefinition definition,
-            OutcomeVariant variant
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
     ) {
         ResourceLocation entityId =
                 definition.entityTypeId();
@@ -1031,13 +1170,23 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     ":smelted";
         }
 
+        if (isSlimeFrogKillBranch(
+                definition,
+                targetDrop
+        )) {
+
+            id +=
+                    ":frog";
+        }
+
         return id;
     }
 
     private static ResourceLocation buildRouteId(
             CraftScopeMobDropCatalog.MobDefinition definition,
             ResourceLocation targetId,
-            OutcomeVariant variant
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
     ) {
         ResourceLocation entityId =
                 definition.entityTypeId();
@@ -1056,6 +1205,20 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
             value +=
                     "/smelted";
+        }
+
+        /*
+         * Preserve the historic ID for the ordinary Slime route.
+         * Only the additional mutually-exclusive Frog route needs a
+         * new route identity.
+         */
+        if (isSlimeFrogKillBranch(
+                definition,
+                targetDrop
+        )) {
+
+            value +=
+                    "/frog";
         }
 
         return requireId(

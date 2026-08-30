@@ -229,6 +229,24 @@ public final class CraftScopeMobLootTableInterpreter {
         Set<ResourceLocation> ambiguousItems =
                 new LinkedHashSet<>();
 
+        /*
+         * A very small number of loot tables contain multiple
+         * mutually-exclusive branches for the same item.
+         *
+         * Vanilla Slime is currently the only supported case:
+         *
+         *     killed by Frog     -> Slime Ball
+         *     not killed by Frog -> Slime Ball
+         *
+         * These are routes, not independent simultaneous rolls.
+         */
+        Set<ResourceLocation> retainedConditionalDuplicateItems =
+                new LinkedHashSet<>();
+
+        List<CraftScopeMobDropCatalog.DropDefinition>
+                retainedConditionalDuplicates =
+                new ArrayList<>();
+
         int unsupportedPools =
                 0;
 
@@ -279,6 +297,42 @@ public final class CraftScopeMobLootTableInterpreter {
                 continue;
             }
 
+            /*
+             * We only understand the exact two-branch Slime case.
+             *
+             * A third occurrence means the distribution has become
+             * more complicated, so discard the retained branches and
+             * fall back to the normal conservative behavior.
+             */
+            if (retainedConditionalDuplicateItems.contains(
+                    itemId
+            )) {
+
+                dropsByItem.remove(
+                        itemId
+                );
+
+                retainedConditionalDuplicates.removeIf(
+                        existing ->
+                                itemId.equals(
+                                        existing.itemId()
+                                )
+                );
+
+                retainedConditionalDuplicateItems.remove(
+                        itemId
+                );
+
+                ambiguousItems.add(
+                        itemId
+                );
+
+                complete =
+                        false;
+
+                continue;
+            }
+
             CraftScopeMobDropCatalog.DropDefinition previous =
                     dropsByItem.get(
                             itemId
@@ -294,6 +348,32 @@ public final class CraftScopeMobLootTableInterpreter {
                 continue;
             }
 
+            /*
+             * Vanilla Slime has two mutually-exclusive pools for the
+             * same output item:
+             *
+             *     small Slime + non-Frog kill -> 0-2 Slime Balls
+             *     small Slime + Frog kill     -> 1 Slime Ball
+             *
+             * Keeping both definitions is exact because only one can
+             * apply to a given kill.
+             */
+            if (canRetainMutuallyExclusiveSameItem(
+                    snapshot.entityTypeId(),
+                    previous,
+                    drop
+            )) {
+
+                retainedConditionalDuplicateItems.add(
+                        itemId
+                );
+
+                retainedConditionalDuplicates.add(
+                        drop
+                );
+
+                continue;
+            }
             /*
              * Multiple independent pools producing the same item
              * alter its total probability distribution.
@@ -313,16 +393,138 @@ public final class CraftScopeMobLootTableInterpreter {
                     false;
         }
 
+        List<CraftScopeMobDropCatalog.DropDefinition>
+                interpretedDrops =
+                new ArrayList<>(
+                        dropsByItem.values()
+                );
+
+        interpretedDrops.addAll(
+                retainedConditionalDuplicates
+        );
+
         return new MobInterpretation(
                 complete,
                 List.copyOf(
-                        dropsByItem.values()
+                        interpretedDrops
                 ),
                 unsupportedPools,
                 unsupportedEntries
         );
     }
 
+    private static boolean canRetainMutuallyExclusiveSameItem(
+            ResourceLocation entityTypeId,
+            CraftScopeMobDropCatalog.DropDefinition first,
+            CraftScopeMobDropCatalog.DropDefinition second
+    ) {
+        if (entityTypeId == null
+                || first == null
+                || second == null) {
+
+            return false;
+        }
+
+        /*
+         * This exception is intentionally restricted to vanilla
+         * Slime. Guardian/Elder Guardian duplicate Cod pools are
+         * independent rolls and must NOT pass through here.
+         */
+        if (!"minecraft:slime".equals(
+                entityTypeId.toString()
+        )) {
+
+            return false;
+        }
+
+        if (!first.itemId().equals(
+                second.itemId()
+        )
+                || !"minecraft:slime_ball".equals(
+                first.itemId().toString()
+        )) {
+
+            return false;
+        }
+
+        /*
+         * Both branches must originate from the exact size-1 Slime
+         * table recognized by the frog preprocessor/interpreter.
+         */
+        if (!hasRequirement(
+                first,
+                "Mob size must be exactly 1"
+        )
+                || !hasRequirement(
+                second,
+                "Mob size must be exactly 1"
+        )) {
+
+            return false;
+        }
+
+        boolean firstFrog =
+                hasRequirement(
+                        first,
+                        "Killed by Frog"
+                );
+
+        boolean firstNotFrog =
+                hasRequirement(
+                        first,
+                        "Not killed by Frog"
+                );
+
+        boolean secondFrog =
+                hasRequirement(
+                        second,
+                        "Killed by Frog"
+                );
+
+        boolean secondNotFrog =
+                hasRequirement(
+                        second,
+                        "Not killed by Frog"
+                );
+
+        return (
+                firstFrog
+                        && !firstNotFrog
+                        && secondNotFrog
+                        && !secondFrog
+        )
+                || (
+                firstNotFrog
+                        && !firstFrog
+                        && secondFrog
+                        && !secondNotFrog
+        );
+    }
+
+    private static boolean hasRequirement(
+            CraftScopeMobDropCatalog.DropDefinition drop,
+            String expected
+    ) {
+        if (drop == null
+                || expected == null
+                || drop.targetRequirements() == null) {
+
+            return false;
+        }
+
+        for (String requirement :
+                drop.targetRequirements()) {
+
+            if (expected.equals(
+                    requirement
+            )) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
     private static PoolInterpretation interpretPool(
             JsonElement poolElement
     ) {
