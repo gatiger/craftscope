@@ -170,10 +170,29 @@ public final class CraftScopeMobLootTableScanner {
                 furnacePrepared.transformationCount()
         );
 
+        /*
+         * Slime and Magma Cube must be recognized before negative
+         * count normalization changes the original entry structure.
+         *
+         * The frog processor accepts only the exact known mutually-
+         * exclusive vanilla shapes.
+         */
+        CraftScopeMobLootFrogBranchProcessor.PreparedScan
+                frogPrepared =
+                CraftScopeMobLootFrogBranchProcessor.prepare(
+                        furnacePrepared.scanResult()
+                );
+
+        Constants.LOG.info(
+                "CraftScope frog-branch preprocessing: {} pools split, {} branches generated",
+                frogPrepared.poolsSplit(),
+                frogPrepared.branchesGenerated()
+        );
+
         CraftScopeMobLootNegativeCountProcessor.PreparedScan
                 countPrepared =
                 CraftScopeMobLootNegativeCountProcessor.prepare(
-                        furnacePrepared.scanResult()
+                        frogPrepared.scanResult()
                 );
 
         Constants.LOG.info(

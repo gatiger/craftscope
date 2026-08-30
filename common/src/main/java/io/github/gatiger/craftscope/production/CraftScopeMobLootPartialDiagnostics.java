@@ -32,7 +32,9 @@ public final class CraftScopeMobLootPartialDiagnostics {
                     "minecraft:killed_by_player",
                     "minecraft:random_chance",
                     "minecraft:random_chance_with_enchanted_bonus",
-                    "minecraft:entity_properties"
+                    "minecraft:entity_properties",
+                    "minecraft:damage_source_properties",
+                    "minecraft:inverted"
             );
 
     private static final Set<String> SUPPORTED_ENTRY_FUNCTIONS =

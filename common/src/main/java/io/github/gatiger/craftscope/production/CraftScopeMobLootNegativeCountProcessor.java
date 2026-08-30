@@ -45,8 +45,6 @@ public final class CraftScopeMobLootNegativeCountProcessor {
     private static final double EPSILON =
             0.0000001D;
 
-    private static final double NORMALIZED_CHANCE =
-            1.0D / 3.0D;
 
     private CraftScopeMobLootNegativeCountProcessor() {
     }
@@ -200,6 +198,9 @@ public final class CraftScopeMobLootNegativeCountProcessor {
         int matchingIndex =
                 -1;
 
+        Double normalizedChance =
+                null;
+
         for (int i = 0;
              i < functions.size();
              i++) {
@@ -209,14 +210,20 @@ public final class CraftScopeMobLootNegativeCountProcessor {
                             i
                     );
 
-            if (isExactNegativeOneToOneSetCount(
-                    functionElement
-            )) {
+            Double candidateChance =
+                    getNegativeToOneChance(
+                            functionElement
+                    );
+
+            if (candidateChance != null) {
 
                 matchingFunctions++;
 
                 matchingIndex =
                         i;
+
+                normalizedChance =
+                        candidateChance;
             }
         }
 
@@ -227,7 +234,8 @@ public final class CraftScopeMobLootNegativeCountProcessor {
          * function, function ordering/composition would matter.
          */
         if (matchingFunctions != 1
-                || matchingIndex < 0) {
+                || matchingIndex < 0
+                || normalizedChance == null) {
 
             return 0;
         }
@@ -294,7 +302,7 @@ public final class CraftScopeMobLootNegativeCountProcessor {
 
         chanceCondition.addProperty(
                 "chance",
-                NORMALIZED_CHANCE
+                normalizedChance
         );
 
         conditions.add(
@@ -309,13 +317,34 @@ public final class CraftScopeMobLootNegativeCountProcessor {
         return 1;
     }
 
-    private static boolean isExactNegativeOneToOneSetCount(
+    /*
+     * Converts a uniform whole-number count range:
+     *
+     *     minimum .. 1
+     *
+     * where minimum <= 0 into the probability of producing one
+     * positive item.
+     *
+     * Examples:
+     *
+     *     -1 .. 1
+     *         outcomes: -1, 0, 1
+     *         chance of one item = 1/3
+     *
+     *     -2 .. 1
+     *         outcomes: -2, -1, 0, 1
+     *         chance of one item = 1/4
+     *
+     * Non-positive stack counts produce no item, so this conversion
+     * preserves the ordinary base distribution exactly.
+     */
+    private static Double getNegativeToOneChance(
             JsonElement functionElement
     ) {
         if (functionElement == null
                 || !functionElement.isJsonObject()) {
 
-            return false;
+            return null;
         }
 
         JsonObject function =
@@ -328,12 +357,9 @@ public final class CraftScopeMobLootNegativeCountProcessor {
                 )
         )) {
 
-            return false;
+            return null;
         }
 
-        /*
-         * Conditional set_count would have different semantics.
-         */
         JsonArray conditions =
                 getArray(
                         function,
@@ -345,26 +371,22 @@ public final class CraftScopeMobLootNegativeCountProcessor {
         )
                 && conditions == null) {
 
-            return false;
+            return null;
         }
 
         if (conditions != null
                 && !conditions.isEmpty()) {
 
-            return false;
+            return null;
         }
 
-        /*
-         * add=true means this range is added to an existing count
-         * rather than replacing it. Do not normalize that case.
-         */
         if (getBoolean(
                 function,
                 "add",
                 false
         )) {
 
-            return false;
+            return null;
         }
 
         JsonObject count =
@@ -374,7 +396,7 @@ public final class CraftScopeMobLootNegativeCountProcessor {
                 );
 
         if (count == null) {
-            return false;
+            return null;
         }
 
         if (!"minecraft:uniform".equals(
@@ -384,7 +406,7 @@ public final class CraftScopeMobLootNegativeCountProcessor {
                 )
         )) {
 
-            return false;
+            return null;
         }
 
         Double minimum =
@@ -399,16 +421,47 @@ public final class CraftScopeMobLootNegativeCountProcessor {
                         "max"
                 );
 
-        return approximately(
-                minimum,
-                -1.0D
-        )
-                && approximately(
+        if (minimum == null
+                || maximum == null
+                || Double.isNaN(minimum)
+                || Double.isInfinite(minimum)
+                || Double.isNaN(maximum)
+                || Double.isInfinite(maximum)) {
+
+            return null;
+        }
+
+        double roundedMinimum =
+                Math.rint(
+                        minimum
+                );
+
+        if (Math.abs(
+                minimum - roundedMinimum
+        ) > EPSILON) {
+
+            return null;
+        }
+
+        if (roundedMinimum > 0.0D
+                || !approximately(
                 maximum,
                 1.0D
-        );
-    }
+        )) {
 
+            return null;
+        }
+
+        double possibleOutcomes =
+                2.0D - roundedMinimum;
+
+        if (possibleOutcomes <= 0.0D) {
+            return null;
+        }
+
+        return 1.0D
+                / possibleOutcomes;
+    }
     private static boolean approximately(
             Double value,
             double expected

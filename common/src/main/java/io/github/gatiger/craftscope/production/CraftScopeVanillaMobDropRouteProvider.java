@@ -126,7 +126,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 buildOutputs(
                         definition,
                         target,
-                        variant
+                        variant,
+                        targetDrop
                 );
 
         CraftScopeResourceAmount targetOutput =
@@ -318,7 +319,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
     private static List<CraftScopeResourceAmount> buildOutputs(
             CraftScopeMobDropCatalog.MobDefinition definition,
             ItemStack target,
-            OutcomeVariant variant
+            OutcomeVariant variant,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
     ) {
         List<CraftScopeResourceAmount> outputs =
                 new ArrayList<>();
@@ -339,6 +341,36 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             drop,
                             variant
                     );
+
+            /*
+             * Some mob loot entries represent mutually-exclusive
+             * kill outcomes rather than simultaneous co-products.
+             *
+             * Vanilla Magma Cube:
+             *
+             *     not killed by Frog
+             *         -> Magma Cream
+             *
+             *     killed by Warm Frog
+             *         -> Pearlescent Froglight
+             *
+             *     killed by Cold Frog
+             *         -> Verdant Froglight
+             *
+             *     killed by Temperate Frog
+             *         -> Ochre Froglight
+             *
+             * Only outputs compatible with the selected target's
+             * branch belong in this route.
+             */
+            if (isMutuallyExclusiveFrogOutcome(
+                    definition,
+                    targetDrop,
+                    drop
+            )) {
+
+                continue;
+            }
 
             /*
              * Component variants of the target item are mutually
@@ -405,6 +437,138 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
+    private static boolean isMutuallyExclusiveFrogOutcome(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop,
+            CraftScopeMobDropCatalog.DropDefinition candidateDrop
+    ) {
+        if (definition == null
+                || targetDrop == null
+                || candidateDrop == null
+                || targetDrop == candidateDrop) {
+
+            return false;
+        }
+
+        String entityId =
+                definition
+                        .entityTypeId()
+                        .toString();
+
+        FrogOutcome targetOutcome =
+                getFrogOutcome(
+                        targetDrop.targetRequirements()
+                );
+
+        FrogOutcome candidateOutcome =
+                getFrogOutcome(
+                        candidateDrop.targetRequirements()
+                );
+
+        if (targetOutcome == FrogOutcome.NONE
+                || candidateOutcome == FrogOutcome.NONE) {
+
+            return false;
+        }
+
+        /*
+         * Vanilla Magma Cube's four frog-related branches are all
+         * mutually exclusive.
+         */
+        if ("minecraft:magma_cube".equals(
+                entityId
+        )) {
+
+            return targetOutcome
+                    != candidateOutcome;
+        }
+
+        /*
+         * Vanilla Slime has two mutually-exclusive branches that both
+         * happen to produce Slime Balls:
+         *
+         *     frog kill
+         *     non-frog kill
+         *
+         * This filtering will become useful once the interpreter is
+         * allowed to retain both same-item branches.
+         */
+        if ("minecraft:slime".equals(
+                entityId
+        )) {
+
+            return (
+                    targetOutcome == FrogOutcome.FROG
+                            && candidateOutcome == FrogOutcome.NOT_FROG
+            )
+                    || (
+                    targetOutcome == FrogOutcome.NOT_FROG
+                            && candidateOutcome == FrogOutcome.FROG
+            );
+        }
+
+        return false;
+    }
+
+    private static FrogOutcome getFrogOutcome(
+            List<String> requirements
+    ) {
+        if (requirements == null
+                || requirements.isEmpty()) {
+
+            return FrogOutcome.NONE;
+        }
+
+        for (String requirement :
+                requirements) {
+
+            if ("Not killed by Frog".equals(
+                    requirement
+            )) {
+
+                return FrogOutcome.NOT_FROG;
+            }
+
+            if ("Killed by Frog".equals(
+                    requirement
+            )) {
+
+                return FrogOutcome.FROG;
+            }
+
+            if ("Killed by Warm Frog".equals(
+                    requirement
+            )) {
+
+                return FrogOutcome.WARM_FROG;
+            }
+
+            if ("Killed by Cold Frog".equals(
+                    requirement
+            )) {
+
+                return FrogOutcome.COLD_FROG;
+            }
+
+            if ("Killed by Temperate Frog".equals(
+                    requirement
+            )) {
+
+                return FrogOutcome.TEMPERATE_FROG;
+            }
+        }
+
+        return FrogOutcome.NONE;
+    }
+
+    private enum FrogOutcome {
+        NONE,
+        NOT_FROG,
+        FROG,
+        WARM_FROG,
+        COLD_FROG,
+        TEMPERATE_FROG
+    }
     private static ResourceLocation getEffectiveItemId(
             CraftScopeMobDropCatalog.DropDefinition drop,
             OutcomeVariant variant

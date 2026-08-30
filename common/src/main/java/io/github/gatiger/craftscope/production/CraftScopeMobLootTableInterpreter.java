@@ -853,6 +853,72 @@ public final class CraftScopeMobLootTableInterpreter {
             }
 
             /*
+             * Frog-dependent mob loot.
+             *
+             * This intentionally supports only the exact
+             * damage_source_properties structures used by vanilla
+             * Slime and Magma Cube loot.
+             */
+            if ("minecraft:inverted".equals(
+                    conditionType
+            )) {
+
+                if (condition.size() != 2) {
+                    return ConditionInterpretation.unsupported();
+                }
+
+                String innerRequirement =
+                        describeFrogDamageSource(
+                                condition.get(
+                                        "term"
+                                )
+                        );
+
+                /*
+                 * Vanilla uses inversion only for the generic
+                 * "killed by a frog" test here.
+                 */
+                if (!"Killed by Frog".equals(
+                        innerRequirement
+                )) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                requirements.add(
+                        "Not killed by Frog"
+                );
+
+                continue;
+            }
+
+            if ("minecraft:damage_source_properties".equals(
+                    conditionType
+            )) {
+
+                String frogRequirement =
+                        describeFrogDamageSource(
+                                condition
+                        );
+
+                if (frogRequirement != null) {
+
+                    requirements.add(
+                            frogRequirement
+                    );
+
+                    continue;
+                }
+
+                /*
+                 * Do not reject here.
+                 *
+                 * Other narrowly-supported damage-source structures,
+                 * such as Turtle's lightning condition, are handled
+                 * later in this method.
+                 */
+            }
+            /*
              * Conservative entity-properties support.
              *
              * Vanilla Creeper music discs use:
@@ -987,6 +1053,87 @@ public final class CraftScopeMobLootTableInterpreter {
                     JsonObject typeSpecific =
                             typeSpecificElement.getAsJsonObject();
 
+                    /*
+                     * Vanilla Slime / Magma Cube size predicates.
+                     *
+                     * Supported:
+                     *
+                     *     size = 1
+                     *
+                     * and:
+                     *
+                     *     size = { min: 2 }
+                     *
+                     * No other Slime predicate shapes are accepted.
+                     */
+                    if ("minecraft:slime".equals(
+                            getString(
+                                    typeSpecific,
+                                    "type"
+                            )
+                    )
+                            && typeSpecific.size() == 2) {
+
+                        JsonElement sizeElement =
+                                typeSpecific.get(
+                                        "size"
+                                );
+
+                        if (sizeElement != null
+                                && sizeElement.isJsonPrimitive()
+                                && sizeElement
+                                .getAsJsonPrimitive()
+                                .isNumber()) {
+
+                            double size =
+                                    sizeElement
+                                            .getAsDouble();
+
+                            if (!Double.isNaN(size)
+                                    && !Double.isInfinite(size)
+                                    && Math.abs(
+                                    size - 1.0D
+                            ) <= EPSILON) {
+
+                                requirements.add(
+                                        "Mob size must be exactly 1"
+                                );
+
+                                continue;
+                            }
+
+                            return ConditionInterpretation.unsupported();
+                        }
+
+                        if (sizeElement != null
+                                && sizeElement.isJsonObject()) {
+
+                            JsonObject sizeRange =
+                                    sizeElement.getAsJsonObject();
+
+                            Double minimumSize =
+                                    getDouble(
+                                            sizeRange,
+                                            "min"
+                                    );
+
+                            if (sizeRange.size() == 1
+                                    && minimumSize != null
+                                    && Math.abs(
+                                    minimumSize - 2.0D
+                            ) <= EPSILON) {
+
+                                requirements.add(
+                                        "Mob size must be at least 2"
+                                );
+
+                                continue;
+                            }
+                        }
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
                     if (typeSpecific.size() != 2
                             || !"minecraft:raider".equals(
                             getString(
@@ -1025,6 +1172,113 @@ public final class CraftScopeMobLootTableInterpreter {
             }
 
             /*
+             * Conservative damage-source support.
+             *
+             * Minecraft 1.21.1 Turtle loot uses this exact condition
+             * for its Bowl drop: the damage source must carry the
+             * minecraft:is_lightning tag.
+             *
+             * More complicated damage-source predicates remain
+             * unsupported.
+             */
+            if ("minecraft:damage_source_properties".equals(
+                    conditionType
+            )) {
+
+                if (condition.size() != 2) {
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonElement predicateElement =
+                        condition.get(
+                                "predicate"
+                        );
+
+                if (predicateElement == null
+                        || !predicateElement.isJsonObject()) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonObject predicate =
+                        predicateElement.getAsJsonObject();
+
+                if (predicate.size() != 1
+                        || !predicate.has(
+                        "tags"
+                )) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonElement tagsElement =
+                        predicate.get(
+                                "tags"
+                        );
+
+                if (tagsElement == null
+                        || !tagsElement.isJsonArray()) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonArray tags =
+                        tagsElement.getAsJsonArray();
+
+                if (tags.size() != 1) {
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonElement tagElement =
+                        tags.get(
+                                0
+                        );
+
+                if (tagElement == null
+                        || !tagElement.isJsonObject()) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonObject tag =
+                        tagElement.getAsJsonObject();
+
+                if (tag.size() != 2) {
+                    return ConditionInterpretation.unsupported();
+                }
+
+                String tagId =
+                        getString(
+                                tag,
+                                "id"
+                        );
+
+                JsonElement expectedElement =
+                        tag.get(
+                                "expected"
+                        );
+
+                if (!"minecraft:is_lightning".equals(
+                        tagId
+                )
+                        || expectedElement == null
+                        || !expectedElement.isJsonPrimitive()
+                        || !expectedElement
+                        .getAsJsonPrimitive()
+                        .isBoolean()
+                        || !expectedElement
+                        .getAsBoolean()) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                requirements.add(
+                        "Killed by lightning"
+                );
+
+                continue;
+            }
+            /*
              * Examples currently unsupported:
              *
              * - entity_properties
@@ -1054,6 +1308,143 @@ public final class CraftScopeMobLootTableInterpreter {
         );
     }
 
+    /*
+     * Reads the exact frog damage-source predicates used by vanilla
+     * Slime and Magma Cube loot tables.
+     *
+     * Returns null for every other structure.
+     */
+    private static String describeFrogDamageSource(
+            JsonElement conditionElement
+    ) {
+        if (conditionElement == null
+                || !conditionElement.isJsonObject()) {
+
+            return null;
+        }
+
+        JsonObject condition =
+                conditionElement.getAsJsonObject();
+
+        if (condition.size() != 2
+                || !"minecraft:damage_source_properties".equals(
+                getString(
+                        condition,
+                        "condition"
+                )
+        )) {
+
+            return null;
+        }
+
+        JsonElement predicateElement =
+                condition.get(
+                        "predicate"
+                );
+
+        if (predicateElement == null
+                || !predicateElement.isJsonObject()) {
+
+            return null;
+        }
+
+        JsonObject predicate =
+                predicateElement.getAsJsonObject();
+
+        if (predicate.size() != 1) {
+            return null;
+        }
+
+        JsonElement sourceElement =
+                predicate.get(
+                        "source_entity"
+                );
+
+        if (sourceElement == null
+                || !sourceElement.isJsonObject()) {
+
+            return null;
+        }
+
+        JsonObject source =
+                sourceElement.getAsJsonObject();
+
+        if (!"minecraft:frog".equals(
+                getString(
+                        source,
+                        "type"
+                )
+        )) {
+
+            return null;
+        }
+
+        /*
+         * Generic frog source.
+         */
+        if (source.size() == 1) {
+
+            return "Killed by Frog";
+        }
+
+        if (source.size() != 2) {
+            return null;
+        }
+
+        JsonElement typeSpecificElement =
+                source.get(
+                        "type_specific"
+                );
+
+        if (typeSpecificElement == null
+                || !typeSpecificElement.isJsonObject()) {
+
+            return null;
+        }
+
+        JsonObject typeSpecific =
+                typeSpecificElement.getAsJsonObject();
+
+        if (typeSpecific.size() != 2
+                || !"minecraft:frog".equals(
+                getString(
+                        typeSpecific,
+                        "type"
+                )
+        )) {
+
+            return null;
+        }
+
+        String variant =
+                getString(
+                        typeSpecific,
+                        "variant"
+                );
+
+        if ("minecraft:warm".equals(
+                variant
+        )) {
+
+            return "Killed by Warm Frog";
+        }
+
+        if ("minecraft:cold".equals(
+                variant
+        )) {
+
+            return "Killed by Cold Frog";
+        }
+
+        if ("minecraft:temperate".equals(
+                variant
+        )) {
+
+            return "Killed by Temperate Frog";
+        }
+
+        return null;
+    }
     private static CountRange readCountRange(
             JsonElement countElement
     ) {
