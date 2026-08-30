@@ -26,7 +26,8 @@ public final class CraftScopeMobLootUnsupportedDiagnostics {
             Set.of(
                     "minecraft:killed_by_player",
                     "minecraft:random_chance",
-                    "minecraft:random_chance_with_enchanted_bonus"
+                    "minecraft:random_chance_with_enchanted_bonus",
+                    "minecraft:entity_properties"
             );
 
     private static final Set<String> SUPPORTED_ENTRY_FUNCTIONS =

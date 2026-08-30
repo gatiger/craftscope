@@ -1039,6 +1039,24 @@ public final class CraftScopeProcessDiagramRenderer {
             return ItemStack.EMPTY;
         }
 
+        /*
+         * Preserve exact Minecraft item components when CraftScope
+         * knows the resource identity.
+         *
+         * This is required for tipped arrows, Ominous Bottle levels,
+         * and future component-bearing vanilla/modded resources.
+         */
+        if (resource.hasItemIdentity()) {
+
+            ItemStack identityStack =
+                    resource.createDisplayStack();
+
+            if (!identityStack.isEmpty()) {
+
+                return identityStack;
+            }
+        }
+
         List<ResourceLocation> variants =
                 resource.acceptedVariantIds();
 

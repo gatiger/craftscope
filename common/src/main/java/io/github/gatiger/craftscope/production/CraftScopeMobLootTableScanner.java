@@ -181,10 +181,29 @@ public final class CraftScopeMobLootTableScanner {
                 countPrepared.normalizedCount()
         );
 
+        /*
+         * Expand runtime item tags before weighted multi-entry
+         * normalization. An expand=true tag behaves like multiple
+         * selectable item entries, so the existing multi-entry
+         * processor can then calculate each member's probability.
+         */
+        CraftScopeMobLootTagEntryProcessor.PreparedScan
+                tagPrepared =
+                CraftScopeMobLootTagEntryProcessor.prepare(
+                        countPrepared.scanResult(),
+                        server.registryAccess()
+                );
+
+        Constants.LOG.info(
+                "CraftScope tag-entry preprocessing: {} tag entries expanded, {} item entries generated",
+                tagPrepared.tagEntriesExpanded(),
+                tagPrepared.itemEntriesGenerated()
+        );
+
         CraftScopeMobLootMultiEntryProcessor.PreparedScan
                 multiEntryPrepared =
                 CraftScopeMobLootMultiEntryProcessor.prepare(
-                        countPrepared.scanResult()
+                        tagPrepared.scanResult()
                 );
 
         Constants.LOG.info(
@@ -213,10 +232,22 @@ public final class CraftScopeMobLootTableScanner {
                 potionPrepared.identityCount()
         );
 
+        CraftScopeMobLootOminousBottleProcessor.PreparedScan
+                ominousPrepared =
+                CraftScopeMobLootOminousBottleProcessor.prepare(
+                        potionPrepared.scanResult()
+                );
+
+        Constants.LOG.info(
+                "CraftScope ominous-bottle preprocessing: {} functions resolved, {} component identities generated",
+                ominousPrepared.functionsResolved(),
+                ominousPrepared.identitiesGenerated()
+        );
+
         CraftScopeMobLootTableInterpreter.InterpretationResult
                 interpretation =
                 CraftScopeMobLootTableInterpreter.interpret(
-                        potionPrepared.scanResult()
+                        ominousPrepared.scanResult()
                 );
 
         interpretation =
@@ -233,17 +264,24 @@ public final class CraftScopeMobLootTableScanner {
                                 potionPrepared
                         );
 
+        interpretation =
+                CraftScopeMobLootOminousBottleProcessor
+                        .applyVariants(
+                                interpretation,
+                                ominousPrepared
+                        );
+
         /*
          * Diagnostics inspect the same prepared loot structure the
          * interpreter actually consumed. Successfully modeled potion
          * functions therefore no longer appear as false blockers.
          */
         CraftScopeMobLootUnsupportedDiagnostics.log(
-                potionPrepared.scanResult()
+                ominousPrepared.scanResult()
         );
 
         CraftScopeMobLootPartialDiagnostics.log(
-                potionPrepared.scanResult(),
+                ominousPrepared.scanResult(),
                 interpretation
         );
 

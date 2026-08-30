@@ -3819,6 +3819,25 @@ public class CraftScopeProjectScreen
             return ItemStack.EMPTY;
         }
 
+        /*
+         * Component-aware resources must render their exact ItemStack
+         * rather than being reconstructed from the registry ID.
+         *
+         * This preserves potion contents, Ominous Bottle amplifier,
+         * and future component-bearing modded items in the Process
+         * Diagram.
+         */
+        if (resource.hasItemIdentity()) {
+
+            ItemStack identityStack =
+                    resource.createDisplayStack();
+
+            if (!identityStack.isEmpty()) {
+
+                return identityStack;
+            }
+        }
+
         List<ResourceLocation> variants =
                 resource.acceptedVariantIds();
 

@@ -1,5 +1,6 @@
 package io.github.gatiger.craftscope.production;
 
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -94,9 +95,55 @@ public final class CraftScopeItemIdentity {
     }
 
     public Component displayName() {
+        /*
+         * Some component-bearing items do not expose their variant
+         * through ItemStack#getHoverName().
+         *
+         * Ominous Bottles are one example: amplifier 0 and amplifier
+         * 4 both normally report simply "Ominous Bottle".
+         *
+         * CraftScope needs the component identity to be visible so a
+         * player can tell which exact resource a route produces.
+         */
+        Integer ominousAmplifier =
+                stack.get(
+                        DataComponents.OMINOUS_BOTTLE_AMPLIFIER
+                );
+
+        if (ominousAmplifier != null) {
+
+            int visibleLevel =
+                    ominousAmplifier + 1;
+
+            return stack
+                    .getHoverName()
+                    .copy()
+                    .append(
+                            " "
+                                    + formatRomanLevel(
+                                    visibleLevel
+                            )
+                    );
+        }
+
         return stack
                 .getHoverName()
                 .copy();
+    }
+
+    private static String formatRomanLevel(
+            int level
+    ) {
+        return switch (level) {
+            case 1 -> "I";
+            case 2 -> "II";
+            case 3 -> "III";
+            case 4 -> "IV";
+            case 5 -> "V";
+            default -> Integer.toString(
+                    level
+            );
+        };
     }
 
     public boolean hasCustomComponents() {

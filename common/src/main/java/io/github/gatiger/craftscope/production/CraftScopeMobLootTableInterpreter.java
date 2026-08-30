@@ -853,6 +853,178 @@ public final class CraftScopeMobLootTableInterpreter {
             }
 
             /*
+             * Conservative entity-properties support.
+             *
+             * Vanilla Creeper music discs use:
+             *
+             *     entity = attacker
+             *     predicate = {
+             *         type = #minecraft:skeletons
+             *     }
+             *
+             * Only that simple "attacker + entity type/tag" shape is
+             * accepted here. Position, equipment, flags, NBT, vehicle,
+             * effects, team, distance, etc. remain unsupported.
+             */
+            if ("minecraft:entity_properties".equals(
+                    conditionType
+            )) {
+
+                String entityTarget =
+                        getString(
+                                condition,
+                                "entity"
+                        );
+
+                JsonElement predicateElement =
+                        condition.get(
+                                "predicate"
+                        );
+
+                if (predicateElement == null
+                        || !predicateElement.isJsonObject()) {
+
+                    return ConditionInterpretation.unsupported();
+                }
+
+                JsonObject predicate =
+                        predicateElement.getAsJsonObject();
+
+                /*
+                 * Creeper music-disc condition:
+                 *
+                 * attacker must match an entity type or entity tag.
+                 */
+                if ("attacker".equals(
+                        entityTarget
+                )) {
+
+                    if (predicate.size() != 1) {
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
+                    String typePredicate =
+                            getString(
+                                    predicate,
+                                    "type"
+                            );
+
+                    if (typePredicate == null
+                            || typePredicate.isBlank()) {
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
+                    if (typePredicate.startsWith(
+                            "#"
+                    )) {
+
+                        ResourceLocation tagId =
+                                ResourceLocation.tryParse(
+                                        typePredicate.substring(
+                                                1
+                                        )
+                                );
+
+                        if (tagId == null) {
+
+                            return ConditionInterpretation.unsupported();
+                        }
+
+                        requirements.add(
+                                "Killed by attacker matching entity tag "
+                                        + tagId
+                        );
+
+                    } else {
+
+                        ResourceLocation entityId =
+                                ResourceLocation.tryParse(
+                                        typePredicate
+                                );
+
+                        if (entityId == null) {
+
+                            return ConditionInterpretation.unsupported();
+                        }
+
+                        requirements.add(
+                                "Killed by "
+                                        + entityId
+                        );
+                    }
+
+                    continue;
+                }
+
+                /*
+                 * Pillager Ominous Bottle condition:
+                 *
+                 * this entity must be a Raider Captain.
+                 *
+                 * Only this exact type_specific predicate is accepted.
+                 */
+                if ("this".equals(
+                        entityTarget
+                )
+                        && predicate.size() == 1
+                        && predicate.has(
+                        "type_specific"
+                )) {
+
+                    JsonElement typeSpecificElement =
+                            predicate.get(
+                                    "type_specific"
+                            );
+
+                    if (typeSpecificElement == null
+                            || !typeSpecificElement.isJsonObject()) {
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
+                    JsonObject typeSpecific =
+                            typeSpecificElement.getAsJsonObject();
+
+                    if (typeSpecific.size() != 2
+                            || !"minecraft:raider".equals(
+                            getString(
+                                    typeSpecific,
+                                    "type"
+                            )
+                    )) {
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
+                    JsonElement captainElement =
+                            typeSpecific.get(
+                                    "is_captain"
+                            );
+
+                    if (captainElement == null
+                            || !captainElement.isJsonPrimitive()
+                            || !captainElement
+                            .getAsJsonPrimitive()
+                            .isBoolean()
+                            || !captainElement
+                            .getAsBoolean()) {
+
+                        return ConditionInterpretation.unsupported();
+                    }
+
+                    requirements.add(
+                            "Mob must be a Raider Captain"
+                    );
+
+                    continue;
+                }
+
+                return ConditionInterpretation.unsupported();
+            }
+
+            /*
              * Examples currently unsupported:
              *
              * - entity_properties

@@ -125,6 +125,7 @@ public final class CraftScopeVanillaMobDropRouteProvider
         List<CraftScopeResourceAmount> outputs =
                 buildOutputs(
                         definition,
+                        target,
                         variant
                 );
 
@@ -316,10 +317,19 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
     private static List<CraftScopeResourceAmount> buildOutputs(
             CraftScopeMobDropCatalog.MobDefinition definition,
+            ItemStack target,
             OutcomeVariant variant
     ) {
         List<CraftScopeResourceAmount> outputs =
                 new ArrayList<>();
+
+        ResourceLocation targetId =
+                target == null
+                        || target.isEmpty()
+                        ? null
+                        : BuiltInRegistries.ITEM.getKey(
+                        target.getItem()
+                );
 
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
@@ -329,6 +339,51 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             drop,
                             variant
                     );
+
+            /*
+             * Component variants of the target item are mutually
+             * exclusive outcomes.
+             *
+             * Example:
+             *
+             * Ominous Bottle I-V are five possible amplifier results
+             * from one Pillager Captain drop. When this route was
+             * requested for Bottle I, do not show II-V as additional
+             * co-products in the output pane.
+             *
+             * Outputs with different registry IDs remain untouched.
+             */
+            if (targetId != null
+                    && targetId.equals(
+                    effectiveItemId
+            )) {
+
+                CraftScopeItemIdentity outputIdentity =
+                        getEffectiveItemIdentity(
+                                drop,
+                                variant
+                        );
+
+                if (outputIdentity != null) {
+
+                    if (!outputIdentity.matches(
+                            target
+                    )) {
+
+                        continue;
+                    }
+
+                } else if (!target
+                        .getComponentsPatch()
+                        .isEmpty()) {
+
+                    /*
+                     * A componentless definition cannot represent a
+                     * component-bearing target variant.
+                     */
+                    continue;
+                }
+            }
 
             CraftScopeResourceAmount output =
                     buildOutput(
@@ -433,7 +488,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
             return new CraftScopeResourceAmount(
                     CraftScopeResourceKind.ITEM,
                     id,
-                    stack.getHoverName().copy(),
+                    itemIdentity == null
+                            ? stack.getHoverName().copy()
+                            : itemIdentity.displayName(),
                     drop.amount(),
                     "",
                     false,

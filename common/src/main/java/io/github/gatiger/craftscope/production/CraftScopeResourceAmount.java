@@ -270,6 +270,32 @@ public record CraftScopeResourceAmount(
                 );
             }
 
+            /*
+             * Component-bearing items may share the same normal
+             * Minecraft hover name even though they are materially
+             * different resources.
+             *
+             * Examples:
+             *
+             *     Ominous Bottle I
+             *     Ominous Bottle V
+             *     Poison Tipped Arrow
+             *     Slowness Tipped Arrow
+             *
+             * Once CraftScope has an exact component identity, use
+             * that identity as the authoritative display name too.
+             *
+             * Doing this here keeps every UI, summary, route and
+             * future integration consistent instead of requiring
+             * component-name fixes in individual renderers.
+             */
+            if (itemIdentity != null
+                    && itemIdentity.hasCustomComponents()) {
+
+                displayName =
+                        itemIdentity.displayName();
+            }
+
         } else {
 
             /*
