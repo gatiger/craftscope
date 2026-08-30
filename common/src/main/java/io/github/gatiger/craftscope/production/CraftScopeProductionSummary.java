@@ -215,7 +215,10 @@ public record CraftScopeProductionSummary(
                         route.targetOutput()
                 );
 
-        if (!produced.containsKey(targetKey)) {
+        if (!containsResourceFamily(
+                produced,
+                route.targetOutput()
+        )) {
             long targetProduced =
                     safeMultiply(
                             route.targetOutput().amount(),
@@ -473,6 +476,11 @@ public record CraftScopeProductionSummary(
                         targetOutput
                 );
 
+        String targetFamilyKey =
+                buildResourceFamilyKey(
+                        targetOutput
+                );
+
         for (Map.Entry<String, ResourceAccumulator> entry :
                 produced.entrySet()) {
 
@@ -538,8 +546,11 @@ public record CraftScopeProductionSummary(
         for (CraftScopeResourceAmount output :
                 result) {
 
-            if (buildResourceKey(output)
-                    .equals(targetKey)) {
+            if (buildResourceFamilyKey(
+                    output
+            ).equals(
+                    targetFamilyKey
+            )) {
 
                 targetPresent = true;
                 break;
@@ -593,6 +604,103 @@ public record CraftScopeProductionSummary(
                 + requirement.unit();
     }
 
+    private static boolean containsResourceFamily(
+            Map<String, ResourceAccumulator> resources,
+            CraftScopeResourceAmount target
+    ) {
+        if (resources == null
+                || resources.isEmpty()
+                || target == null) {
+
+            return false;
+        }
+
+        String targetFamilyKey =
+                buildResourceFamilyKey(
+                        target
+                );
+
+        for (ResourceAccumulator accumulator :
+                resources.values()) {
+
+            if (accumulator == null
+                    || accumulator.representative == null) {
+
+                continue;
+            }
+
+            if (targetFamilyKey.equals(
+                    buildResourceFamilyKey(
+                            accumulator.representative
+                    )
+            )) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static String buildResourceFamilyKey(
+            CraftScopeResourceAmount resource
+    ) {
+        if (resource == null) {
+            return "null";
+        }
+
+        List<String> variants =
+                new ArrayList<>();
+
+        for (ResourceLocation id :
+                resource.acceptedVariantIds()) {
+
+            if (id != null) {
+                variants.add(
+                        id.toString()
+                );
+            }
+        }
+
+        variants.sort(
+                String::compareTo
+        );
+
+        if (variants.isEmpty()
+                && resource.id() != null) {
+
+            variants.add(
+                    resource
+                            .id()
+                            .toString()
+            );
+        }
+
+        String key =
+                resource.kind()
+                        + "|"
+                        + String.join(
+                        ",",
+                        variants
+                )
+                        + "|"
+                        + resource.unit();
+
+        /*
+         * Component-bearing items remain distinct.
+         *
+         * Poison Tipped Arrow and Slowness Tipped Arrow, for
+         * example, must never be treated as the same resource.
+         */
+        if (resource.hasCustomItemComponents()) {
+
+            key +=
+                    "|itemIdentity="
+                            + resource.itemIdentity();
+        }
+
+        return key;
+    }
     private static String buildResourceKey(
             CraftScopeResourceAmount resource
     ) {

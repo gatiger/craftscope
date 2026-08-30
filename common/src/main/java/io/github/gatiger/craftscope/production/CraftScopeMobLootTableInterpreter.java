@@ -362,6 +362,11 @@ public final class CraftScopeMobLootTableInterpreter {
                     snapshot.entityTypeId(),
                     previous,
                     drop
+            )
+                    || canRetainIndependentGuardianCod(
+                    snapshot.entityTypeId(),
+                    previous,
+                    drop
             )) {
 
                 retainedConditionalDuplicateItems.add(
@@ -501,6 +506,148 @@ public final class CraftScopeMobLootTableInterpreter {
         );
     }
 
+    /*
+     * Guardian and Elder Guardian each have two independent Cod
+     * contributions:
+     *
+     * 1. the ordinary weighted loot pool
+     *
+     * 2. the rare fishing-table bonus that requires a player or
+     *    tamed-wolf kill
+     *
+     * These are NOT mutually-exclusive routes like Slime.
+     *
+     * We retain both definitions here so the route provider can later
+     * expose:
+     *
+     *     ordinary kill
+     *
+     * and:
+     *
+     *     player/tamed-wolf kill with the extra independent Cod roll
+     *
+     * The exact probability aggregation is intentionally handled
+     * outside the interpreter.
+     */
+    private static boolean canRetainIndependentGuardianCod(
+            ResourceLocation entityTypeId,
+            CraftScopeMobDropCatalog.DropDefinition first,
+            CraftScopeMobDropCatalog.DropDefinition second
+    ) {
+        if (entityTypeId == null
+                || first == null
+                || second == null) {
+
+            return false;
+        }
+
+        String entityId =
+                entityTypeId.toString();
+
+        if (!"minecraft:guardian".equals(
+                entityId
+        )
+                && !"minecraft:elder_guardian".equals(
+                entityId
+        )) {
+
+            return false;
+        }
+
+        if (!first.itemId().equals(
+                second.itemId()
+        )
+                || !"minecraft:cod".equals(
+                first.itemId().toString()
+        )) {
+
+            return false;
+        }
+
+        /*
+         * After weighted-pool and nested-table preprocessing, both
+         * known Cod contributions are fixed one-item probabilistic
+         * drops.
+         *
+         * Restrict the exception to that exact representation.
+         */
+        if (first.mode()
+                != CraftScopeMobDropCatalog.DropMode.CHANCE
+                || second.mode()
+                != CraftScopeMobDropCatalog.DropMode.CHANCE
+                || first.amount() != 1L
+                || second.amount() != 1L
+                || first.minimum() != 0L
+                || second.minimum() != 0L
+                || first.maximum() != 1L
+                || second.maximum() != 1L) {
+
+            return false;
+        }
+
+        if (first.chance() <= 0.0D
+                || first.chance() >= 1.0D
+                || second.chance() <= 0.0D
+                || second.chance() >= 1.0D) {
+
+            return false;
+        }
+
+        /*
+         * Component-bearing variants are not part of this vanilla
+         * special case.
+         */
+        if (first.itemIdentity() != null
+                || second.itemIdentity() != null
+                || first.transformedItemIdentity() != null
+                || second.transformedItemIdentity() != null) {
+
+            return false;
+        }
+
+        /*
+         * Both Cod contributions must have the same transformation
+         * behavior. In vanilla this is raw Cod -> Cooked Cod when the
+         * furnace-smelt condition is satisfied.
+         */
+        ResourceLocation firstTransformed =
+                first.transformedItemId();
+
+        ResourceLocation secondTransformed =
+                second.transformedItemId();
+
+        if (firstTransformed == null) {
+
+            if (secondTransformed != null) {
+                return false;
+            }
+
+        } else if (!firstTransformed.equals(
+                secondTransformed
+        )) {
+
+            return false;
+        }
+
+        boolean firstPlayerKill =
+                hasRequirement(
+                        first,
+                        "Player or tamed-wolf kill"
+                );
+
+        boolean secondPlayerKill =
+                hasRequirement(
+                        second,
+                        "Player or tamed-wolf kill"
+                );
+
+        /*
+         * Exactly one contribution must be the bonus player-kill
+         * source.
+         */
+        return firstPlayerKill
+                != secondPlayerKill;
+    }
     private static boolean hasRequirement(
             CraftScopeMobDropCatalog.DropDefinition drop,
             String expected

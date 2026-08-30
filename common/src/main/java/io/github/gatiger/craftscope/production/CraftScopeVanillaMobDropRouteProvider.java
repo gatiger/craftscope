@@ -363,6 +363,15 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         target.getItem()
                 );
 
+        boolean guardianCodTarget =
+                isGuardianCodTarget(
+                        definition,
+                        targetDrop
+                );
+
+        boolean guardianCodOutputAdded =
+                false;
+
         for (CraftScopeMobDropCatalog.DropDefinition drop :
                 definition.drops()) {
 
@@ -371,6 +380,22 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             drop,
                             variant
                     );
+
+            /*
+             * Guardian/Elder Guardian Cod has an ordinary contribution
+             * plus an additional independent player-kill contribution.
+             *
+             * The ordinary route must not claim outputs that require
+             * the player-kill branch.
+             */
+            if (guardianCodTarget
+                    && !isOutputCompatibleWithTarget(
+                    targetDrop,
+                    drop
+            )) {
+
+                continue;
+            }
 
             /*
              * Some mob loot entries represent mutually-exclusive
@@ -398,6 +423,49 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     targetDrop,
                     drop
             )) {
+
+                continue;
+            }
+
+            /*
+             * Guardian/Elder Guardian Cod can come from two independent
+             * pools on a player/tamed-wolf kill.
+             *
+             * Represent those as one resource with the correct:
+             *
+             *     chance of at least one
+             *     expected amount
+             *     minimum
+             *     maximum
+             *
+             * rather than displaying two separate Cod output rows.
+             */
+            if (guardianCodTarget
+                    && targetId != null
+                    && targetId.equals(
+                    effectiveItemId
+            )) {
+
+                if (!guardianCodOutputAdded) {
+
+                    CraftScopeResourceAmount guardianCodOutput =
+                            buildGuardianCodOutput(
+                                    definition,
+                                    targetDrop,
+                                    variant,
+                                    targetId
+                            );
+
+                    if (guardianCodOutput != null) {
+
+                        outputs.add(
+                                guardianCodOutput
+                        );
+                    }
+
+                    guardianCodOutputAdded =
+                            true;
+                }
 
                 continue;
             }
@@ -462,11 +530,343 @@ public final class CraftScopeVanillaMobDropRouteProvider
             }
         }
 
+        /*
+         * Guardian/Elder Guardian Cod is represented by one combined
+         * target resource.
+         *
+         * The underlying runtime definition intentionally retains the
+         * two independent Cod contributions so their probability and
+         * expected-value math can be calculated correctly. They must
+         * not, however, survive as duplicate visible output rows.
+         *
+         * Keep the first target resource, which is the combined
+         * Guardian Cod output created above, and preserve every other
+         * co-product unchanged.
+         */
+        if (guardianCodTarget
+                && targetId != null) {
+
+            List<CraftScopeResourceAmount> cleanedOutputs =
+                    new ArrayList<>();
+
+            boolean targetOutputSeen =
+                    false;
+
+            for (CraftScopeResourceAmount output :
+                    outputs) {
+
+                if (output != null
+                        && output.kind()
+                        == CraftScopeResourceKind.ITEM
+                        && targetId.equals(
+                        output.id()
+                )) {
+
+                    if (targetOutputSeen) {
+                        continue;
+                    }
+
+                    targetOutputSeen =
+                            true;
+                }
+
+                cleanedOutputs.add(
+                        output
+                );
+            }
+
+            return List.copyOf(
+                    cleanedOutputs
+            );
+        }
+
         return List.copyOf(
                 outputs
         );
     }
 
+    private static boolean isGuardianCodTarget(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
+    ) {
+        if (definition == null
+                || targetDrop == null) {
+
+            return false;
+        }
+
+        String entityId =
+                definition
+                        .entityTypeId()
+                        .toString();
+
+        if (!"minecraft:guardian".equals(
+                entityId
+        )
+                && !"minecraft:elder_guardian".equals(
+                entityId
+        )) {
+
+            return false;
+        }
+
+        return "minecraft:cod".equals(
+                targetDrop
+                        .itemId()
+                        .toString()
+        );
+    }
+
+    private static boolean isGuardianPlayerBonusBranch(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop
+    ) {
+        return isGuardianCodTarget(
+                definition,
+                targetDrop
+        )
+                && hasTargetRequirement(
+                targetDrop,
+                "Player or tamed-wolf kill"
+        );
+    }
+
+    private static boolean hasTargetRequirement(
+            CraftScopeMobDropCatalog.DropDefinition drop,
+            String expected
+    ) {
+        if (drop == null
+                || expected == null
+                || drop.targetRequirements() == null) {
+
+            return false;
+        }
+
+        for (String requirement :
+                drop.targetRequirements()) {
+
+            if (expected.equals(
+                    requirement
+            )) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static Set<String> getGatingRequirements(
+            CraftScopeMobDropCatalog.DropDefinition drop
+    ) {
+        Set<String> result =
+                new LinkedHashSet<>();
+
+        if (drop == null
+                || drop.targetRequirements() == null) {
+
+            return result;
+        }
+
+        for (String requirement :
+                drop.targetRequirements()) {
+
+            if (requirement == null
+                    || requirement.isBlank()
+                    || requirement.startsWith(
+                    "Optional:"
+            )) {
+
+                continue;
+            }
+
+            result.add(
+                    requirement
+            );
+        }
+
+        return result;
+    }
+
+    private static boolean isOutputCompatibleWithTarget(
+            CraftScopeMobDropCatalog.DropDefinition targetDrop,
+            CraftScopeMobDropCatalog.DropDefinition candidateDrop
+    ) {
+        if (targetDrop == null
+                || candidateDrop == null) {
+
+            return false;
+        }
+
+        Set<String> targetRequirements =
+                getGatingRequirements(
+                        targetDrop
+                );
+
+        Set<String> candidateRequirements =
+                getGatingRequirements(
+                        candidateDrop
+                );
+
+        /*
+         * An unconditional output is compatible with every branch.
+         *
+         * A conditional output is included only when the selected
+         * target branch guarantees every one of its gating conditions.
+         */
+        return targetRequirements.containsAll(
+                candidateRequirements
+        );
+    }
+
+    private static CraftScopeResourceAmount buildGuardianCodOutput(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            CraftScopeMobDropCatalog.DropDefinition targetDrop,
+            OutcomeVariant variant,
+            ResourceLocation targetId
+    ) {
+        if (!isGuardianCodTarget(
+                definition,
+                targetDrop
+        )
+                || targetId == null) {
+
+            return null;
+        }
+
+        long minimum =
+                0L;
+
+        long maximum =
+                0L;
+
+        double expected =
+                0.0D;
+
+        double probabilityOfNone =
+                1.0D;
+
+        Component displayName =
+                null;
+
+        CraftScopeItemIdentity itemIdentity =
+                null;
+
+        String unit =
+                "";
+
+        int contributionCount =
+                0;
+
+        for (CraftScopeMobDropCatalog.DropDefinition candidate :
+                definition.drops()) {
+
+            if (!isOutputCompatibleWithTarget(
+                    targetDrop,
+                    candidate
+            )) {
+
+                continue;
+            }
+
+            ResourceLocation candidateId =
+                    getEffectiveItemId(
+                            candidate,
+                            variant
+                    );
+
+            if (!targetId.equals(
+                    candidateId
+            )) {
+
+                continue;
+            }
+
+            CraftScopeResourceAmount contribution =
+                    buildOutput(
+                            candidate,
+                            candidateId,
+                            variant
+                    );
+
+            if (contribution == null) {
+                continue;
+            }
+
+            contributionCount++;
+
+            minimum +=
+                    contribution.minimumAmount();
+
+            maximum +=
+                    contribution.maximumAmount();
+
+            expected +=
+                    contribution.expectedAmount();
+
+            probabilityOfNone *=
+                    1.0D
+                            - contribution.chance();
+
+            if (displayName == null) {
+
+                displayName =
+                        contribution.displayName();
+
+                itemIdentity =
+                        contribution.itemIdentity();
+
+                unit =
+                        contribution.unit();
+            }
+        }
+
+        if (contributionCount == 0
+                || displayName == null
+                || maximum <= 0L) {
+
+            return null;
+        }
+
+        double chanceOfAtLeastOne =
+                1.0D
+                        - probabilityOfNone;
+
+        chanceOfAtLeastOne =
+                Math.max(
+                        0.0D,
+                        Math.min(
+                                1.0D,
+                                chanceOfAtLeastOne
+                        )
+                );
+
+        /*
+         * "amount" remains the nominal single successful yield.
+         *
+         * The explicit min/max/expected fields carry the complete
+         * combined planning information.
+         */
+        long nominalAmount =
+                1L;
+
+        return new CraftScopeResourceAmount(
+                CraftScopeResourceKind.ITEM,
+                targetId,
+                displayName,
+                nominalAmount,
+                unit,
+                false,
+                chanceOfAtLeastOne,
+                List.of(
+                        targetId
+                ),
+                minimum,
+                maximum,
+                expected,
+                itemIdentity
+        );
+    }
     private static boolean isMutuallyExclusiveFrogOutcome(
             CraftScopeMobDropCatalog.MobDefinition definition,
             CraftScopeMobDropCatalog.DropDefinition targetDrop,
@@ -1018,7 +1418,15 @@ public final class CraftScopeVanillaMobDropRouteProvider
                             .entityTypeId()
                             .toString();
 
-            if ("minecraft:slime".equals(
+            if (isGuardianPlayerBonusBranch(
+                    definition,
+                    targetDrop
+            )) {
+
+                base +=
+                        " (Player Kill Bonus)";
+
+            } else if ("minecraft:slime".equals(
                     entityId
             )
                     || "minecraft:magma_cube".equals(
@@ -1078,10 +1486,13 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 mobName.getString()
                         + " Drops";
 
-        if (variant == OutcomeVariant.TRANSFORMED) {
+        if (isGuardianPlayerBonusBranch(
+                definition,
+                targetDrop
+        )) {
 
-            return base
-                    + " (Smelted Loot)";
+            base +=
+                    " (Player Kill Bonus)";
         }
 
         /*
@@ -1095,8 +1506,14 @@ public final class CraftScopeVanillaMobDropRouteProvider
                 targetDrop
         )) {
 
-            return base
-                    + " (Frog Kill)";
+            base +=
+                    " (Frog Kill)";
+        }
+
+        if (variant == OutcomeVariant.TRANSFORMED) {
+
+            base +=
+                    " (Smelted Loot)";
         }
 
         return base;
@@ -1179,6 +1596,15 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     ":frog";
         }
 
+        if (isGuardianPlayerBonusBranch(
+                definition,
+                targetDrop
+        )) {
+
+            id +=
+                    ":player_bonus";
+        }
+
         return id;
     }
 
@@ -1219,6 +1645,15 @@ public final class CraftScopeVanillaMobDropRouteProvider
 
             value +=
                     "/frog";
+        }
+
+        if (isGuardianPlayerBonusBranch(
+                definition,
+                targetDrop
+        )) {
+
+            value +=
+                    "/player_bonus";
         }
 
         return requireId(
