@@ -1,6 +1,7 @@
 package io.github.gatiger.craftscope.ui.diagram;
 
 import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
+import io.github.gatiger.craftscope.production.CraftScopeProductionGraph;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
@@ -17,7 +18,9 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public final class CraftScopeProcessDiagramRenderer {
 
@@ -38,6 +41,14 @@ public final class CraftScopeProcessDiagramRenderer {
 
     private static final long VARIANT_CYCLE_MS =
             1000L;
+
+    /*
+     * Multiple independently produced resources feeding one process
+     * rotate through the shared convergence/input node at the same
+     * relaxed speed used by the older grouped-resource UI.
+     */
+    private static final long GRAPH_INPUT_CYCLE_MS =
+            1600L;
 
     private CraftScopeProcessDiagramRenderer() {
     }
@@ -139,19 +150,33 @@ public final class CraftScopeProcessDiagramRenderer {
 
         /*
          * Connections first so nodes remain above them.
+         *
+         * Connections are explicit rather than inferred from list
+         * order. Linear diagrams still use sequential connections,
+         * while the upcoming graph layout can supply branching and
+         * converging edges.
          */
-        for (int i = 0;
-             i < layout.positions().size() - 1;
-             i++) {
+        for (DiagramConnection connection :
+                layout.connections()) {
+
+            int fromIndex =
+                    connection.fromNodeIndex();
+
+            int toIndex =
+                    connection.toNodeIndex();
 
             boolean highlighted =
-                    selectedNodeIndex == i
-                            || selectedNodeIndex == i + 1;
+                    selectedNodeIndex == fromIndex
+                            || selectedNodeIndex == toIndex;
 
             drawConnection(
                     graphics,
-                    layout.positions().get(i),
-                    layout.positions().get(i + 1),
+                    layout.positions().get(
+                            fromIndex
+                    ),
+                    layout.positions().get(
+                            toIndex
+                    ),
                     highlighted
             );
         }
@@ -305,6 +330,40 @@ public final class CraftScopeProcessDiagramRenderer {
             int bottom,
             long requestedTargetCount
     ) {
+        /*
+         * Ordinary routes retain the existing sequential/serpentine
+         * layout.
+         *
+         * Only a route with a real convergence point switches to the
+         * graph layout.
+         */
+        if (route != null
+                && route.steps().size() > 1) {
+
+            CraftScopeProductionGraph graph =
+                    CraftScopeProductionGraph.fromRoute(
+                            route
+                    );
+
+            if (graph.hasBranchingInputs()) {
+
+                DiagramLayout graphLayout =
+                        buildGraphDiagramLayout(
+                                route,
+                                graph,
+                                left,
+                                top,
+                                right,
+                                bottom,
+                                requestedTargetCount
+                        );
+
+                if (graphLayout != null) {
+                    return graphLayout;
+                }
+            }
+        }
+
         List<DiagramNode> nodes =
                 buildNodes(
                         route,
@@ -315,6 +374,7 @@ public final class CraftScopeProcessDiagramRenderer {
 
             return new DiagramLayout(
                     nodes,
+                    List.of(),
                     List.of()
             );
         }
@@ -406,8 +466,670 @@ public final class CraftScopeProcessDiagramRenderer {
 
         return new DiagramLayout(
                 nodes,
-                positions
+                positions,
+                buildSequentialConnections(
+                        nodes.size()
+                )
         );
+    }
+
+    private static List<DiagramConnection>
+    buildSequentialConnections(
+            int nodeCount
+    ) {
+        if (nodeCount <= 1) {
+            return List.of();
+        }
+
+        List<DiagramConnection> result =
+                new ArrayList<>();
+
+        for (int i = 0;
+             i < nodeCount - 1;
+             i++) {
+
+            result.add(
+                    new DiagramConnection(
+                            i,
+                            i + 1
+                    )
+            );
+        }
+
+        return List.copyOf(
+                result
+        );
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Branching graph layout
+     * ---------------------------------------------------------
+     *
+     * Every production step is represented by:
+     *
+     *     Process -> Produced Resource
+     *
+     * The produced-resource node then connects to whichever later
+     * process consumes it.
+     *
+     * Several resource nodes may therefore converge on one process.
+     */
+    private static DiagramLayout buildGraphDiagramLayout(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionGraph graph,
+            int left,
+            int top,
+            int right,
+            int bottom,
+            long requestedTargetCount
+    ) {
+        if (route == null
+                || graph == null
+                || graph.steps().isEmpty()) {
+
+            return null;
+        }
+
+        long routeOutputAmount =
+                Math.max(
+                        1L,
+                        route.targetOutput().amount()
+                );
+
+        long runs =
+                ceilDiv(
+                        Math.max(
+                                1L,
+                                requestedTargetCount
+                        ),
+                        routeOutputAmount
+                );
+
+        /*
+         * Determine the dependency depth of every step.
+         *
+         * Because CraftScopeProductionGraph is topologically ordered,
+         * parent depths are already known when the consumer is
+         * visited.
+         */
+        Map<Integer, Integer> depthByStep =
+                new LinkedHashMap<>();
+
+        int maximumDepth =
+                0;
+
+        for (CraftScopeProductionGraph.StepNode node :
+                graph.steps()) {
+
+            int depth =
+                    0;
+
+            for (CraftScopeProductionGraph.Edge edge :
+                    graph.incomingEdges(
+                            node.index()
+                    )) {
+
+                int parentDepth =
+                        depthByStep.getOrDefault(
+                                edge.producerStepIndex(),
+                                0
+                        );
+
+                depth =
+                        Math.max(
+                                depth,
+                                parentDepth + 1
+                        );
+            }
+
+            depthByStep.put(
+                    node.index(),
+                    depth
+            );
+
+            maximumDepth =
+                    Math.max(
+                            maximumDepth,
+                            depth
+                    );
+        }
+
+        Map<Integer, Integer> stepCountByDepth =
+                new LinkedHashMap<>();
+
+        for (Integer depth :
+                depthByStep.values()) {
+
+            stepCountByDepth.merge(
+                    depth,
+                    1,
+                    Integer::sum
+            );
+        }
+
+        int diagramTop =
+                top
+                        + ROUTE_TITLE_HEIGHT;
+
+        int diagramWidth =
+                Math.max(
+                        1,
+                        right - left
+                );
+
+        int diagramHeight =
+                Math.max(
+                        1,
+                        bottom - diagramTop
+                );
+
+        /*
+         * Each dependency depth contains:
+         *
+         *     process | resource
+         *
+         * Prefer the normal horizontal spacing, but shrink the gaps
+         * when the graph would otherwise extend beyond the diagram
+         * panel.
+         *
+         * Node size remains unchanged so icons/text stay readable.
+         */
+        int depthCount =
+                maximumDepth + 1;
+
+        int totalNodeWidth =
+                depthCount
+                        * NODE_WIDTH
+                        * 2;
+
+        /*
+         * One gap exists inside every process/resource pair.
+         *
+         * Two additional gap-widths separate dependency depths.
+         */
+        int gapSlots =
+                depthCount
+                        + maximumDepth * 2;
+
+        int availableGapWidth =
+                Math.max(
+                        0,
+                        diagramWidth
+                                - totalNodeWidth
+                                - 8
+                );
+
+        int graphGap =
+                Math.min(
+                        HORIZONTAL_GAP,
+                        Math.max(
+                                4,
+                                availableGapWidth
+                                        / Math.max(
+                                        1,
+                                        gapSlots
+                                )
+                        )
+                );
+
+        int depthWidth =
+                NODE_WIDTH
+                        * 2
+                        + graphGap;
+
+        int depthGap =
+                graphGap
+                        * 2;
+
+        int requiredWidth =
+                depthCount
+                        * depthWidth
+                        + maximumDepth
+                        * depthGap;
+
+        int startX =
+                left
+                        + Math.max(
+                        4,
+                        (
+                                diagramWidth
+                                        - requiredWidth
+                        ) / 2
+                );
+
+        List<DiagramNode> nodes =
+                new ArrayList<>();
+
+        List<NodePosition> positions =
+                new ArrayList<>();
+
+        List<DiagramConnection> connections =
+                new ArrayList<>();
+
+        Map<Integer, Integer> processNodeByStep =
+                new LinkedHashMap<>();
+
+        Map<Integer, Integer> outputNodeByStep =
+                new LinkedHashMap<>();
+
+        /*
+         * A process with several independently produced inputs gets
+         * one shared resource node immediately before the process.
+         *
+         * That node is where grouped-input rotation belongs.
+         */
+        Map<Integer, Integer> convergenceNodeByStep =
+                new LinkedHashMap<>();
+
+        Map<Integer, Integer> depthOffset =
+                new LinkedHashMap<>();
+
+        for (CraftScopeProductionGraph.StepNode graphNode :
+                graph.steps()) {
+
+            int stepIndex =
+                    graphNode.index();
+
+            CraftScopeProductionStep step =
+                    graphNode.step();
+
+            int depth =
+                    depthByStep.getOrDefault(
+                            stepIndex,
+                            0
+                    );
+
+            int countAtDepth =
+                    stepCountByDepth.getOrDefault(
+                            depth,
+                            1
+                    );
+
+            int offset =
+                    depthOffset.getOrDefault(
+                            depth,
+                            0
+                    );
+
+            depthOffset.put(
+                    depth,
+                    offset + 1
+            );
+
+            int groupHeight =
+                    countAtDepth
+                            * NODE_HEIGHT
+                            + Math.max(
+                            0,
+                            countAtDepth - 1
+                    )
+                            * VERTICAL_GAP;
+
+            int depthStartY =
+                    diagramTop
+                            + Math.max(
+                            4,
+                            (
+                                    diagramHeight
+                                            - groupHeight
+                            ) / 2
+                    );
+
+            int y =
+                    depthStartY
+                            + offset
+                            * (
+                            NODE_HEIGHT
+                                    + VERTICAL_GAP
+                    );
+
+            int processX =
+                    startX
+                            + depth
+                            * (
+                            depthWidth
+                                    + depthGap
+                    );
+
+            int outputX =
+                    processX
+                            + NODE_WIDTH
+                            + graphGap;
+
+            int processNodeIndex =
+                    nodes.size();
+
+            nodes.add(
+                    DiagramNode.process(
+                            step
+                    )
+            );
+
+            positions.add(
+                    new NodePosition(
+                            processX,
+                            y,
+                            NODE_WIDTH,
+                            NODE_HEIGHT
+                    )
+            );
+
+            processNodeByStep.put(
+                    stepIndex,
+                    processNodeIndex
+            );
+
+            /*
+             * When several produced resources converge on this
+             * process, add a shared input node.
+             *
+             * Producer output nodes remain truthful:
+             *
+             *     Blaze Powder remains Blaze Powder.
+             *     Slimeball remains Slimeball.
+             *
+             * The shared node represents the process input group and
+             * rotates between those actual consumed resources.
+             */
+            List<CraftScopeProductionGraph.Edge> incomingEdges =
+                    graph.incomingEdges(
+                            stepIndex
+                    );
+
+            if (incomingEdges.size() > 1) {
+
+                int convergenceY =
+                        findConvergenceNodeY(
+                                y,
+                                diagramTop,
+                                bottom
+                        );
+
+                if (convergenceY >= 0) {
+
+                    long cycle =
+                            System.currentTimeMillis()
+                                    / GRAPH_INPUT_CYCLE_MS;
+
+                    int resourceIndex =
+                            (int) (
+                                    cycle
+                                            % incomingEdges.size()
+                            );
+
+                    CraftScopeResourceAmount displayedInput =
+                            incomingEdges
+                                    .get(
+                                            resourceIndex
+                                    )
+                                    .consumedResource();
+
+                    int convergenceNodeIndex =
+                            nodes.size();
+
+                    nodes.add(
+                            DiagramNode.resource(
+                                    displayedInput,
+                                    safeMultiply(
+                                            displayedInput.amount(),
+                                            runs
+                                    ),
+                                    0
+                            )
+                    );
+
+                    positions.add(
+                            new NodePosition(
+                                    processX,
+                                    convergenceY,
+                                    NODE_WIDTH,
+                                    NODE_HEIGHT
+                            )
+                    );
+
+                    convergenceNodeByStep.put(
+                            stepIndex,
+                            convergenceNodeIndex
+                    );
+
+                    /*
+                     * Shared inputs feed the actual process.
+                     */
+                    connections.add(
+                            new DiagramConnection(
+                                    convergenceNodeIndex,
+                                    processNodeIndex
+                            )
+                    );
+                }
+            }
+
+            CraftScopeResourceAmount flowOutput =
+                    getGraphFlowOutput(
+                            route,
+                            graph,
+                            stepIndex,
+                            step
+                    );
+
+            if (flowOutput == null) {
+
+                /*
+                 * A production step without a drawable output cannot
+                 * participate safely in this graph renderer.
+                 *
+                 * Fall back to the proven sequential renderer.
+                 */
+                return null;
+            }
+
+            int outputNodeIndex =
+                    nodes.size();
+
+            nodes.add(
+                    DiagramNode.resource(
+                            flowOutput,
+                            safeMultiply(
+                                    flowOutput.amount(),
+                                    runs
+                            ),
+                            Math.max(
+                                    0,
+                                    step.outputs().size() - 1
+                            )
+                    )
+            );
+
+            positions.add(
+                    new NodePosition(
+                            outputX,
+                            y,
+                            NODE_WIDTH,
+                            NODE_HEIGHT
+                    )
+            );
+
+            outputNodeByStep.put(
+                    stepIndex,
+                    outputNodeIndex
+            );
+
+            connections.add(
+                    new DiagramConnection(
+                            processNodeIndex,
+                            outputNodeIndex
+                    )
+            );
+        }
+
+        /*
+         * Connect produced-resource nodes to their real consumers.
+         *
+         * This is the part that creates convergence:
+         *
+         *     resource A ─┐
+         *                 ├─> process C
+         *     resource B ─┘
+         */
+        for (CraftScopeProductionGraph.Edge edge :
+                graph.edges()) {
+
+            Integer from =
+                    outputNodeByStep.get(
+                            edge.producerStepIndex()
+                    );
+
+            Integer to =
+                    convergenceNodeByStep.get(
+                            edge.consumerStepIndex()
+                    );
+
+            if (to == null) {
+
+                to =
+                        processNodeByStep.get(
+                                edge.consumerStepIndex()
+                        );
+            }
+
+            if (from == null
+                    || to == null) {
+
+                return null;
+            }
+
+            DiagramConnection connection =
+                    new DiagramConnection(
+                            from,
+                            to
+                    );
+
+            if (!connections.contains(
+                    connection
+            )) {
+
+                connections.add(
+                        connection
+                );
+            }
+        }
+
+        return new DiagramLayout(
+                nodes,
+                positions,
+                connections
+        );
+    }
+
+    /*
+     * Place the grouped-input node vertically so adding it does not
+     * consume another horizontal graph column.
+     *
+     * This is especially important on narrower Process Diagram
+     * panels where another full-width column would force the route
+     * outside its bounds.
+     */
+    private static int findConvergenceNodeY(
+            int processY,
+            int diagramTop,
+            int diagramBottom
+    ) {
+        int spacing =
+                8;
+
+        int above =
+                processY
+                        - NODE_HEIGHT
+                        - spacing;
+
+        if (above >= diagramTop + 4) {
+            return above;
+        }
+
+        int below =
+                processY
+                        + NODE_HEIGHT
+                        + spacing;
+
+        if (below + NODE_HEIGHT
+                <= diagramBottom - 4) {
+
+            return below;
+        }
+
+        return -1;
+    }
+    /*
+     * Choose the resource that represents flow out of a step.
+     *
+     * For an upstream step, prefer the exact resource consumed by its
+     * downstream edge.
+     *
+     * For a terminal step, prefer the route target.
+     */
+    private static CraftScopeResourceAmount getGraphFlowOutput(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionGraph graph,
+            int stepIndex,
+            CraftScopeProductionStep step
+    ) {
+        List<CraftScopeProductionGraph.Edge> outgoing =
+                graph.outgoingEdges(
+                        stepIndex
+                );
+
+        if (!outgoing.isEmpty()) {
+
+            CraftScopeResourceAmount first =
+                    outgoing
+                            .getFirst()
+                            .producedResource();
+
+            /*
+             * First graph-rendering pass remains conservative when one
+             * process feeds several consumers with materially different
+             * output resources.
+             */
+            for (CraftScopeProductionGraph.Edge edge :
+                    outgoing) {
+
+                if (!CraftScopeProductionGraph.resourcesMatch(
+                        first,
+                        edge.producedResource()
+                )) {
+
+                    return null;
+                }
+            }
+
+            return first;
+        }
+
+        if (route != null
+                && step
+                == route.steps().getLast()) {
+
+            for (CraftScopeResourceAmount output :
+                    step.outputs()) {
+
+                if (CraftScopeProductionGraph.resourcesMatch(
+                        output,
+                        route.targetOutput()
+                )) {
+
+                    return output;
+                }
+            }
+
+            return route.targetOutput();
+        }
+
+        if (!step.outputs().isEmpty()) {
+            return step.outputs().getFirst();
+        }
+
+        return null;
     }
 
     /*
@@ -965,6 +1687,9 @@ public final class CraftScopeProcessDiagramRenderer {
                 to.y()
                         + to.height() / 2;
 
+        /*
+         * Simple horizontal connection.
+         */
         if (fromCenterY
                 == toCenterY) {
 
@@ -993,11 +1718,131 @@ public final class CraftScopeProcessDiagramRenderer {
             return;
         }
 
-        drawDownArrow(
+        /*
+         * Pure vertical connection.
+         */
+        if (fromCenterX
+                == toCenterX) {
+
+            if (toCenterY
+                    > fromCenterY) {
+
+                drawDownArrow(
+                        graphics,
+                        fromCenterX,
+                        from.bottom() + 3,
+                        to.y() - 3,
+                        color
+                );
+
+            } else {
+
+                drawUpArrow(
+                        graphics,
+                        fromCenterX,
+                        from.y() - 3,
+                        to.bottom() + 3,
+                        color
+                );
+            }
+
+            return;
+        }
+
+        /*
+         * Branching graph connection.
+         *
+         * Route through an orthogonal elbow:
+         *
+         *     source ─────┐
+         *                 │
+         *                 └────> target
+         *
+         * The vertical segment may travel either upward or downward.
+         */
+        if (toCenterX
+                > fromCenterX) {
+
+            int startX =
+                    from.right() + 3;
+
+            int endX =
+                    to.x() - 3;
+
+            if (endX <= startX) {
+                return;
+            }
+
+            int elbowX =
+                    startX
+                            + (
+                            endX - startX
+                    ) / 2;
+
+            graphics.fill(
+                    startX,
+                    fromCenterY,
+                    elbowX + 1,
+                    fromCenterY + 1,
+                    color
+            );
+
+            drawVerticalLine(
+                    graphics,
+                    elbowX,
+                    fromCenterY,
+                    toCenterY,
+                    color
+            );
+
+            drawRightArrow(
+                    graphics,
+                    elbowX,
+                    endX,
+                    toCenterY,
+                    color
+            );
+
+            return;
+        }
+
+        int startX =
+                from.x() - 3;
+
+        int endX =
+                to.right() + 3;
+
+        if (startX <= endX) {
+            return;
+        }
+
+        int elbowX =
+                endX
+                        + (
+                        startX - endX
+                ) / 2;
+
+        graphics.fill(
+                elbowX,
+                fromCenterY,
+                startX,
+                fromCenterY + 1,
+                color
+        );
+
+        drawVerticalLine(
                 graphics,
-                fromCenterX,
-                from.bottom() + 3,
-                to.y() - 3,
+                elbowX,
+                fromCenterY,
+                toCenterY,
+                color
+        );
+
+        drawLeftArrow(
+                graphics,
+                elbowX,
+                endX,
+                toCenterY,
                 color
         );
     }
@@ -1096,6 +1941,84 @@ public final class CraftScopeProcessDiagramRenderer {
         );
     }
 
+    private static void drawVerticalLine(
+            GuiGraphics graphics,
+            int x,
+            int fromY,
+            int toY,
+            int color
+    ) {
+        int top =
+                Math.min(
+                        fromY,
+                        toY
+                );
+
+        int bottom =
+                Math.max(
+                        fromY,
+                        toY
+                );
+
+        if (bottom <= top) {
+            return;
+        }
+
+        graphics.fill(
+                x,
+                top,
+                x + 1,
+                bottom + 1,
+                color
+        );
+    }
+
+    private static void drawUpArrow(
+            GuiGraphics graphics,
+            int x,
+            int startY,
+            int endY,
+            int color
+    ) {
+        if (startY <= endY) {
+            return;
+        }
+
+        int headY =
+                endY + 4;
+
+        graphics.fill(
+                x,
+                headY,
+                x + 1,
+                startY,
+                color
+        );
+
+        graphics.fill(
+                x - 2,
+                headY - 1,
+                x + 3,
+                headY,
+                color
+        );
+
+        graphics.fill(
+                x - 1,
+                headY - 2,
+                x + 2,
+                headY - 1,
+                color
+        );
+
+        graphics.fill(
+                x,
+                endY,
+                x + 1,
+                headY - 2,
+                color
+        );
+    }
     private static void drawDownArrow(
             GuiGraphics graphics,
             int x,
@@ -1736,9 +2659,76 @@ public final class CraftScopeProcessDiagramRenderer {
         }
     }
 
+    private record DiagramConnection(
+            int fromNodeIndex,
+            int toNodeIndex
+    ) {
+        private DiagramConnection {
+            if (fromNodeIndex < 0
+                    || toNodeIndex < 0) {
+
+                throw new IllegalArgumentException(
+                        "Diagram connection indexes cannot be negative"
+                );
+            }
+
+            if (fromNodeIndex == toNodeIndex) {
+
+                throw new IllegalArgumentException(
+                        "Diagram connection cannot point to itself"
+                );
+            }
+        }
+    }
+
     private record DiagramLayout(
             List<DiagramNode> nodes,
-            List<NodePosition> positions
+            List<NodePosition> positions,
+            List<DiagramConnection> connections
     ) {
+        private DiagramLayout {
+            nodes =
+                    nodes == null
+                            ? List.of()
+                            : List.copyOf(
+                            nodes
+                    );
+
+            positions =
+                    positions == null
+                            ? List.of()
+                            : List.copyOf(
+                            positions
+                    );
+
+            connections =
+                    connections == null
+                            ? List.of()
+                            : List.copyOf(
+                            connections
+                    );
+
+            if (nodes.size()
+                    != positions.size()) {
+
+                throw new IllegalArgumentException(
+                        "Every diagram node must have a position"
+                );
+            }
+
+            for (DiagramConnection connection :
+                    connections) {
+
+                if (connection.fromNodeIndex()
+                        >= nodes.size()
+                        || connection.toNodeIndex()
+                        >= nodes.size()) {
+
+                    throw new IllegalArgumentException(
+                            "Diagram connection references a missing node"
+                    );
+                }
+            }
+        }
     }
 }

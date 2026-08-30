@@ -92,11 +92,47 @@ public final class CraftScopeProductionRouteExpander {
                 new HashSet<>();
 
         for (CraftScopeProductionRoute route : directRoutes) {
+
+            /*
+             * Try the branch-aware planner first.
+             *
+             * Only use its result when the generated route really
+             * contains a convergence point. That keeps ordinary
+             * one-input chains on the existing, proven linear path.
+             */
             CraftScopeProductionRoute expanded =
-                    expandRoute(
+                    expandBranchingRoute(
                             route,
                             selections
                     );
+
+            if (expanded != null) {
+
+                CraftScopeProductionGraph graph =
+                        CraftScopeProductionGraph.fromRoute(
+                                expanded
+                        );
+
+                if (!graph.hasBranchingInputs()) {
+
+                    expanded =
+                            null;
+                }
+            }
+
+            /*
+             * No real branch:
+             *
+             * fall back to the existing linear expansion behavior.
+             */
+            if (expanded == null) {
+
+                expanded =
+                        expandRoute(
+                                route,
+                                selections
+                        );
+            }
 
             if (expanded == null) {
                 continue;
@@ -158,6 +194,232 @@ public final class CraftScopeProductionRouteExpander {
         );
     }
 
+    /*
+     * ---------------------------------------------------------
+     * Branch-aware expansion
+     * ---------------------------------------------------------
+     *
+     * This path can expand more than one consumed input of a step.
+     *
+     * It intentionally remains separate from expand()/expandRoute()
+     * until Process Diagram is switched to graph rendering.
+     *
+     * That prevents a branching route from temporarily appearing as
+     * a misleading linear sequence in the old renderer.
+     */
+    public static CraftScopeProductionRoute expandBranchingRoute(
+            CraftScopeProductionRoute route
+    ) {
+        return expandBranchingRoute(
+                route,
+                Map.of()
+        );
+    }
+
+    public static CraftScopeProductionRoute expandBranchingRoute(
+            CraftScopeProductionRoute route,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (route == null
+                || route.steps().size() != 1) {
+
+            return null;
+        }
+
+        Set<ResourceLocation> visited =
+                new LinkedHashSet<>();
+
+        Expansion expansion =
+                expandBranchingInternal(
+                        route,
+                        visited,
+                        0,
+                        recipeSelections == null
+                                ? Map.of()
+                                : recipeSelections
+                );
+
+        if (!expansion.expanded()
+                || expansion.steps().size()
+                <= route.steps().size()) {
+
+            return null;
+        }
+
+        return new CraftScopeProductionRoute(
+                buildExpandedRouteId(
+                        route
+                ),
+                SOURCE_MOD_ID,
+                SOURCE_MOD_NAME,
+                EXPANDED_ROUTE_NAME,
+                route.targetOutput(),
+                expansion.steps(),
+                addPriorityBonus(
+                        route.priority()
+                )
+        );
+    }
+
+    /*
+     * Recursively expand every consumed item input that has a usable
+     * upstream route.
+     *
+     * Each upstream branch is completed before the current step is
+     * appended, so the resulting route remains topologically ordered:
+     *
+     *     branch A
+     *     branch B
+     *     branch C
+     *     final process
+     *
+     * CraftScopeProductionGraph later reconstructs the actual
+     * dependency edges from resource flow.
+     */
+    private static Expansion expandBranchingInternal(
+            CraftScopeProductionRoute route,
+            Set<ResourceLocation> visited,
+            int depth,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (route == null
+                || route.steps().size() != 1
+                || depth >= MAX_DEPTH) {
+
+            return unchanged(
+                    route
+            );
+        }
+
+        ResourceLocation targetId =
+                route
+                        .targetOutput()
+                        .id();
+
+        if (visited.contains(
+                targetId
+        )) {
+
+            return unchanged(
+                    route
+            );
+        }
+
+        Set<ResourceLocation> nextVisited =
+                new LinkedHashSet<>(
+                        visited
+                );
+
+        nextVisited.add(
+                targetId
+        );
+
+        CraftScopeProductionStep currentStep =
+                route
+                        .steps()
+                        .getFirst();
+
+        List<ExpansionCandidate> candidates =
+                findAllExpandableInputs(
+                        currentStep,
+                        nextVisited,
+                        recipeSelections
+                );
+
+        if (candidates.isEmpty()) {
+
+            return unchanged(
+                    route
+            );
+        }
+
+        List<CraftScopeProductionStep> steps =
+                new ArrayList<>();
+
+        boolean expanded =
+                false;
+
+        for (ExpansionCandidate candidate :
+                candidates) {
+
+            CraftScopeResourceAmount input =
+                    candidate.input();
+
+            CraftScopeProductionRoute upstreamRoute =
+                    candidate.route();
+
+            long requiredAmount =
+                    Math.max(
+                            1L,
+                            input.amount()
+                    );
+
+            long upstreamRuns =
+                    CraftScopeChancePlanner.requiredRuns(
+                            upstreamRoute,
+                            requiredAmount
+                    );
+
+            if (upstreamRuns == Long.MAX_VALUE) {
+                continue;
+            }
+
+            /*
+             * Each branch gets its own copy of the visited set.
+             *
+             * Independent branches must not incorrectly block each
+             * other merely because they happen to share an ancestor
+             * resource somewhere deeper in their trees.
+             */
+            Set<ResourceLocation> branchVisited =
+                    new LinkedHashSet<>(
+                            nextVisited
+                    );
+
+            Expansion upstreamExpansion =
+                    expandBranchingInternal(
+                            upstreamRoute,
+                            branchVisited,
+                            depth + 1,
+                            recipeSelections
+                    );
+
+            for (CraftScopeProductionStep upstreamStep :
+                    upstreamExpansion.steps()) {
+
+                steps.add(
+                        scaleStep(
+                                upstreamStep,
+                                upstreamRuns
+                        )
+                );
+            }
+
+            expanded =
+                    true;
+        }
+
+        if (!expanded) {
+
+            return unchanged(
+                    route
+            );
+        }
+
+        /*
+         * All upstream branches feed into this step.
+         */
+        steps.add(
+                currentStep
+        );
+
+        return new Expansion(
+                List.copyOf(
+                        steps
+                ),
+                true
+        );
+    }
     private static Expansion expandInternal(
             CraftScopeProductionRoute route,
             Set<ResourceLocation> visited,
@@ -186,23 +448,34 @@ public final class CraftScopeProductionRouteExpander {
         CraftScopeProductionStep currentStep =
                 route.steps().getFirst();
 
-        CraftScopeResourceAmount expandableInput =
-                getLinearExpandableInput(currentStep);
-
-        if (expandableInput == null) {
-            return unchanged(route);
-        }
-
-        CraftScopeProductionRoute upstreamRoute =
-                findPreferredUpstreamRoute(
-                        expandableInput,
+        /*
+         * A step may contain several consumed inputs.
+         *
+         * For now, expand it only when exactly ONE of those inputs
+         * has a usable upstream production route.
+         *
+         * Other inputs remain external requirements.
+         *
+         * If two or more inputs have upstream routes, that is a true
+         * branching production graph and is intentionally deferred
+         * to the branch-aware planner/renderer.
+         */
+        ExpansionCandidate expansionCandidate =
+                findSingleExpandableInput(
+                        currentStep,
                         nextVisited,
                         recipeSelections
                 );
 
-        if (upstreamRoute == null) {
+        if (expansionCandidate == null) {
             return unchanged(route);
         }
+
+        CraftScopeResourceAmount expandableInput =
+                expansionCandidate.input();
+
+        CraftScopeProductionRoute upstreamRoute =
+                expansionCandidate.route();
 
         long requiredAmount =
                 Math.max(
@@ -256,31 +529,137 @@ public final class CraftScopeProductionRouteExpander {
         );
     }
 
-    private static CraftScopeResourceAmount getLinearExpandableInput(
-            CraftScopeProductionStep step
+    /*
+     * Find exactly one consumed item input that CraftScope can
+     * produce upstream.
+     *
+     * Examples that are safe for the current linear model:
+     *
+     *     Produced Ingredient
+     *             ↓
+     *     Final Recipe + external ingredient(s)
+     *
+     * A recipe where two separate inputs can both be produced is a
+     * branching graph:
+     *
+     *     Branch A ─┐
+     *               ├─> Final Recipe
+     *     Branch B ─┘
+     *
+     * Do not flatten that into a fake A -> B -> Final sequence.
+     */
+    private static ExpansionCandidate findSingleExpandableInput(
+            CraftScopeProductionStep step,
+            Set<ResourceLocation> visited,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
     ) {
-        if (step == null || step.inputs().size() != 1) {
+        if (step == null
+                || step.inputs().isEmpty()) {
+
             return null;
         }
 
-        CraftScopeResourceAmount input =
-                step.inputs().getFirst();
+        ExpansionCandidate found =
+                null;
 
-        if (input.kind() != CraftScopeResourceKind.ITEM) {
-            return null;
+        for (CraftScopeResourceAmount input :
+                step.inputs()) {
+
+            if (input == null
+                    || input.kind()
+                    != CraftScopeResourceKind.ITEM
+                    || !input.consumed()
+                    || input.amount() <= 0L) {
+
+                continue;
+            }
+
+            CraftScopeProductionRoute upstreamRoute =
+                    findPreferredUpstreamRoute(
+                            input,
+                            visited,
+                            recipeSelections
+                    );
+
+            if (upstreamRoute == null) {
+                continue;
+            }
+
+            /*
+             * More than one producible input means the route really
+             * branches. Preserve correctness and leave that route
+             * unexpanded until the branch-aware graph pass.
+             */
+            if (found != null) {
+                return null;
+            }
+
+            found =
+                    new ExpansionCandidate(
+                            input,
+                            upstreamRoute
+                    );
         }
 
-        if (!input.consumed()) {
-            return null;
-        }
-
-        if (input.amount() <= 0) {
-            return null;
-        }
-
-        return input;
+        return found;
     }
 
+    /*
+     * Return every consumed item input for which CraftScope can find
+     * a valid upstream production route.
+     *
+     * The existing findSingleExpandableInput() remains the conservative
+     * helper used by the old linear expansion path.
+     */
+    private static List<ExpansionCandidate> findAllExpandableInputs(
+            CraftScopeProductionStep step,
+            Set<ResourceLocation> visited,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (step == null
+                || step.inputs().isEmpty()) {
+
+            return List.of();
+        }
+
+        List<ExpansionCandidate> result =
+                new ArrayList<>();
+
+        for (CraftScopeResourceAmount input :
+                step.inputs()) {
+
+            if (input == null
+                    || input.kind()
+                    != CraftScopeResourceKind.ITEM
+                    || !input.consumed()
+                    || input.amount() <= 0L) {
+
+                continue;
+            }
+
+            CraftScopeProductionRoute upstreamRoute =
+                    findPreferredUpstreamRoute(
+                            input,
+                            visited,
+                            recipeSelections
+                    );
+
+            if (upstreamRoute == null) {
+                continue;
+            }
+
+            result.add(
+                    new ExpansionCandidate(
+                            input,
+                            upstreamRoute
+                    )
+            );
+        }
+
+        return List.copyOf(
+                result
+        );
+    }
     private static CraftScopeProductionRoute
     findPreferredUpstreamRoute(
             CraftScopeResourceAmount input,
@@ -834,6 +1213,25 @@ public final class CraftScopeProductionRouteExpander {
                 route.steps(),
                 false
         );
+    }
+
+    private record ExpansionCandidate(
+            CraftScopeResourceAmount input,
+            CraftScopeProductionRoute route
+    ) {
+        private ExpansionCandidate {
+            if (input == null) {
+                throw new IllegalArgumentException(
+                        "Expansion input cannot be null"
+                );
+            }
+
+            if (route == null) {
+                throw new IllegalArgumentException(
+                        "Expansion route cannot be null"
+                );
+            }
+        }
     }
 
     private record Expansion(
