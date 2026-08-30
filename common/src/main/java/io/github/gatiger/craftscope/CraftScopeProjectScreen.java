@@ -6,6 +6,7 @@ import io.github.gatiger.craftscope.material.CraftScopeMaterialSummary;
 import io.github.gatiger.craftscope.material.CraftScopeMaterialSummarizer;
 import io.github.gatiger.craftscope.production.CraftScopeProcessRequirement;
 import io.github.gatiger.craftscope.production.CraftScopeProductionMethod;
+import io.github.gatiger.craftscope.production.CraftScopeProductionDisplayPolicy;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
@@ -1470,7 +1471,8 @@ public class CraftScopeProjectScreen
         renderProcessSummaryBar(
                 graphics,
                 layout.summaryTop(),
-                layout.summaryHeight()
+                layout.summaryHeight(),
+                true
         );
     }
 
@@ -2693,12 +2695,11 @@ public class CraftScopeProjectScreen
                                 : " production steps"
                 )
                         + "  •  "
-                        + summary.runs()
-                        + (
-                        summary.runs() == 1
-                                ? " run"
-                                : " runs"
-                );
+                        + CraftScopeProductionDisplayPolicy
+                        .formatExecutionCount(
+                                displayRoute,
+                                summary.runs()
+                        );
 
         graphics.drawCenteredString(
                 font,
@@ -3324,6 +3325,20 @@ public class CraftScopeProjectScreen
             int top,
             int height
     ) {
+        renderProcessSummaryBar(
+                graphics,
+                top,
+                height,
+                false
+        );
+    }
+
+    private void renderProcessSummaryBar(
+            GuiGraphics graphics,
+            int top,
+            int height,
+            boolean perExecution
+    ) {
         int left = getContentLeft();
         int right = getContentRight();
         int bottom = top + height;
@@ -3441,10 +3456,18 @@ public class CraftScopeProjectScreen
         CraftScopeProductionRoute displayRoute =
                 getDisplayProductionRoute(route);
 
+        boolean singleExecution =
+                perExecution
+                        && CraftScopeProductionDisplayPolicy
+                        .isSingleExecutionRoute(
+                                displayRoute
+                        );
+
         CraftScopeProductionSummary summary =
                 CraftScopeProductionSummary.summarize(
                         displayRoute,
-                        project.getTargetCount()
+                        project.getTargetCount(),
+                        singleExecution
                 );
 
         renderProductionSummaryMachines(

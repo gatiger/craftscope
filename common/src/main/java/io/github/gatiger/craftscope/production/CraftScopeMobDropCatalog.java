@@ -559,9 +559,53 @@ public final class CraftScopeMobDropCatalog {
             List<String> baseTransformationRequirements,
             List<String> transformationRequirements,
             CraftScopeItemIdentity itemIdentity,
-            CraftScopeItemIdentity transformedItemIdentity
+            CraftScopeItemIdentity transformedItemIdentity,
+            double expectedAmount
     ) {
 
+        /*
+         * Backward-compatible constructor matching the previous
+         * component-aware canonical signature.
+         *
+         * Existing processors can continue copying DropDefinition
+         * instances without supplying an explicit expected value.
+         */
+        public DropDefinition(
+                ResourceLocation itemId,
+                DropMode mode,
+                long minimum,
+                long maximum,
+                long amount,
+                double chance,
+                List<String> targetRequirements,
+                ResourceLocation transformedItemId,
+                List<String> baseTransformationRequirements,
+                List<String> transformationRequirements,
+                CraftScopeItemIdentity itemIdentity,
+                CraftScopeItemIdentity transformedItemIdentity
+        ) {
+            this(
+                    itemId,
+                    mode,
+                    minimum,
+                    maximum,
+                    amount,
+                    chance,
+                    targetRequirements,
+                    transformedItemId,
+                    baseTransformationRequirements,
+                    transformationRequirements,
+                    itemIdentity,
+                    transformedItemIdentity,
+                    defaultExpectedAmount(
+                            mode,
+                            minimum,
+                            maximum,
+                            amount,
+                            chance
+                    )
+            );
+        }
         /*
          * Backward-compatible transformation constructor.
          *
@@ -671,6 +715,32 @@ public final class CraftScopeMobDropCatalog {
                 );
             }
 
+            if (Double.isNaN(
+                    expectedAmount
+            )
+                    || Double.isInfinite(
+                    expectedAmount
+            )
+                    || expectedAmount < 0.0D) {
+
+                throw new IllegalArgumentException(
+                        "Expected mob-drop amount must be finite and non-negative"
+                );
+            }
+
+            double maximumPossible =
+                    mode == DropMode.CHANCE
+                            ? (double) amount
+                            : (double) maximum;
+
+            if (expectedAmount
+                    > maximumPossible + 0.000001D) {
+
+                throw new IllegalArgumentException(
+                        "Expected mob-drop amount exceeds maximum yield"
+                );
+            }
+
             if (itemIdentity != null
                     && !itemId.equals(
                     itemIdentity.itemId()
@@ -735,6 +805,29 @@ public final class CraftScopeMobDropCatalog {
                         "Transformation requirements require a transformed item"
                 );
             }
+        }
+
+        private static double defaultExpectedAmount(
+                DropMode mode,
+                long minimum,
+                long maximum,
+                long amount,
+                double chance
+        ) {
+            if (mode == DropMode.CHANCE) {
+
+                return (double) amount
+                        * chance;
+            }
+
+            double conditionalExpected =
+                    (
+                            (double) minimum
+                                    + (double) maximum
+                    ) / 2.0D;
+
+            return conditionalExpected
+                    * chance;
         }
 
         public boolean hasTransformation() {

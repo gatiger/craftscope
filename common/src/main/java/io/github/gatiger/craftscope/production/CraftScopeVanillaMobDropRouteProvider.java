@@ -1079,6 +1079,11 @@ public final class CraftScopeVanillaMobDropRouteProvider
         if (drop.mode()
                 == CraftScopeMobDropCatalog.DropMode.CHANCE) {
 
+            long minimumAmount =
+                    drop.chance() >= 1.0D
+                            ? drop.amount()
+                            : 0L;
+
             return new CraftScopeResourceAmount(
                     CraftScopeResourceKind.ITEM,
                     id,
@@ -1092,6 +1097,9 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     List.of(
                             id
                     ),
+                    minimumAmount,
+                    drop.amount(),
+                    drop.expectedAmount(),
                     itemIdentity
             );
         }
@@ -1127,15 +1135,8 @@ public final class CraftScopeVanillaMobDropRouteProvider
                         ? 0L
                         : drop.minimum();
 
-        double conditionalExpected =
-                (
-                        (double) drop.minimum()
-                                + (double) drop.maximum()
-                ) / 2.0D;
-
         double expected =
-                conditionalExpected
-                        * chance;
+                drop.expectedAmount();
 
         return new CraftScopeResourceAmount(
                 CraftScopeResourceKind.ITEM,

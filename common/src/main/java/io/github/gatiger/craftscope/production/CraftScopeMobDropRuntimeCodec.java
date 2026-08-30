@@ -36,7 +36,9 @@ import java.util.Objects;
 public final class CraftScopeMobDropRuntimeCodec {
 
     /*
-     * Version 3 adds component-aware ItemStack identity metadata.
+     * Version 4 adds explicit expected-yield metadata.
+     *
+     * Version 3 added component-aware ItemStack identity metadata.
      *
      * Version 2 added conditional drop-transformation metadata.
      *
@@ -47,7 +49,7 @@ public final class CraftScopeMobDropRuntimeCodec {
      * cooked beef
      */
     private static final int FORMAT_VERSION =
-            3;
+            4;
 
     private static final int MAX_MOBS =
             4096;
@@ -321,6 +323,10 @@ public final class CraftScopeMobDropRuntimeCodec {
                 drop.chance()
         );
 
+        buffer.writeDouble(
+                drop.expectedAmount()
+        );
+
         writeStrings(
                 buffer,
                 drop.targetRequirements()
@@ -412,6 +418,9 @@ public final class CraftScopeMobDropRuntimeCodec {
         double chance =
                 buffer.readDouble();
 
+        double expectedAmount =
+                buffer.readDouble();
+
         List<String> targetRequirements =
                 readStrings(
                         buffer
@@ -470,7 +479,8 @@ public final class CraftScopeMobDropRuntimeCodec {
                 baseTransformationRequirements,
                 transformationRequirements,
                 itemIdentity,
-                transformedItemIdentity
+                transformedItemIdentity,
+                expectedAmount
         );
     }
 

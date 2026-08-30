@@ -6,6 +6,7 @@ import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionSummary;
 import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
+import io.github.gatiger.craftscope.ui.CraftScopeMarqueeContext;
 import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -417,13 +418,42 @@ public abstract class MixinCraftScopeScrollableOverflow {
                 );
             }
 
-            String label =
-                    craftscope$invokeFitText(
-                            craftscope$invokeGetProductionRouteLabel(
-                                    route
-                            ),
-                            right - left - 20
+            String fullLabel =
+                    craftscope$invokeGetProductionRouteLabel(
+                            route
                     );
+
+            String label;
+
+            if (selected) {
+
+                CraftScopeMarqueeContext.begin();
+
+                try {
+
+                    label =
+                            craftscope$invokeFitText(
+                                    fullLabel,
+                                    right - left - 20
+                            );
+
+                } finally {
+
+                    CraftScopeMarqueeContext.end();
+                }
+
+            } else {
+
+                /*
+                 * Non-selected rows remain still and use CraftScope's
+                 * ordinary ellipsis behavior.
+                 */
+                label =
+                        craftscope$invokeFitText(
+                                fullLabel,
+                                right - left - 20
+                        );
+            }
 
             graphics.drawString(
                     font,

@@ -219,10 +219,31 @@ public final class CraftScopeMobLootTableScanner {
                 tagPrepared.itemEntriesGenerated()
         );
 
+        /*
+         * Witch's main loot pool rolls 1-3 times and therefore cannot
+         * be handled by the ordinary one-roll weighted-entry
+         * preprocessor.
+         *
+         * Normalize that repeated-roll structure first. The normal
+         * multi-entry processor can then continue handling every
+         * remaining single-roll pool.
+         */
+        CraftScopeMobLootWitchProcessor.PreparedScan
+                witchPrepared =
+                CraftScopeMobLootWitchProcessor.prepare(
+                        tagPrepared.scanResult()
+                );
+
+        Constants.LOG.info(
+                "CraftScope Witch repeated-roll preprocessing: {} pools normalized, {} marginal branches generated",
+                witchPrepared.poolsNormalized(),
+                witchPrepared.branchesGenerated()
+        );
+
         CraftScopeMobLootMultiEntryProcessor.PreparedScan
                 multiEntryPrepared =
                 CraftScopeMobLootMultiEntryProcessor.prepare(
-                        tagPrepared.scanResult()
+                        witchPrepared.scanResult()
                 );
 
         Constants.LOG.info(
@@ -288,6 +309,20 @@ public final class CraftScopeMobLootTableScanner {
                         .applyVariants(
                                 interpretation,
                                 ominousPrepared
+                        );
+
+        /*
+         * Witch's repeated weighted rolls require an expected yield
+         * that cannot be inferred from a simple min/max midpoint.
+         *
+         * Apply those exact expected values last so no later
+         * transformation pass can accidentally replace them.
+         */
+        interpretation =
+                CraftScopeMobLootWitchProcessor
+                        .applyExpectedYields(
+                                interpretation,
+                                witchPrepared
                         );
 
         /*

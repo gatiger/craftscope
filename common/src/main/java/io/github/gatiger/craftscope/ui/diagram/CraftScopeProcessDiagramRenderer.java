@@ -678,16 +678,12 @@ public final class CraftScopeProcessDiagramRenderer {
                 CraftScopeUiTheme.TEXT_PRIMARY
         );
 
-        graphics.drawCenteredString(
+        drawBoundedResourceAmount(
+                graphics,
                 font,
-                formatAmount(
-                        resource,
-                        node.amount()
-                ),
-                position.x()
-                        + position.width() / 2,
-                position.y() + 56,
-                CraftScopeUiTheme.TEXT_SECONDARY
+                resource,
+                node.amount(),
+                position
         );
 
         if (node.extraCount() > 0) {
@@ -710,6 +706,130 @@ public final class CraftScopeProcessDiagramRenderer {
         }
     }
 
+    /*
+     * Resource quantity/yield text can become fairly long once a
+     * probabilistic variable yield contains:
+     *
+     *     range
+     *     expected amount
+     *     probability
+     *
+     * Example:
+     *
+     *     x0-6 ≈0.3 @17.9%
+     *
+     * Never allow that text to escape the resource node.
+     *
+     * Prefer two readable lines when probability information is
+     * present:
+     *
+     *     x0-6 ≈0.3
+     *     @17.9%
+     *
+     * Otherwise fall back to the normal width-fitting behavior.
+     */
+    private static void drawBoundedResourceAmount(
+            GuiGraphics graphics,
+            Font font,
+            CraftScopeResourceAmount resource,
+            long amount,
+            NodePosition position
+    ) {
+        String text =
+                formatAmount(
+                        resource,
+                        amount
+                );
+
+        int maxWidth =
+                Math.max(
+                        1,
+                        position.width() - 8
+                );
+
+        int centerX =
+                position.x()
+                        + position.width() / 2;
+
+        if (font.width(
+                text
+        ) <= maxWidth) {
+
+            graphics.drawCenteredString(
+                    font,
+                    text,
+                    centerX,
+                    position.y() + 56,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            return;
+        }
+
+        /*
+         * Probability is the natural split point for variable/
+         * probabilistic yield text.
+         */
+        int probabilitySplit =
+                text.lastIndexOf(
+                        " @"
+                );
+
+        if (probabilitySplit > 0) {
+
+            String firstLine =
+                    text.substring(
+                            0,
+                            probabilitySplit
+                    );
+
+            String secondLine =
+                    text.substring(
+                            probabilitySplit + 1
+                    );
+
+            graphics.drawCenteredString(
+                    font,
+                    fitText(
+                            font,
+                            firstLine,
+                            maxWidth
+                    ),
+                    centerX,
+                    position.y() + 52,
+                    CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            graphics.drawCenteredString(
+                    font,
+                    fitText(
+                            font,
+                            secondLine,
+                            maxWidth
+                    ),
+                    centerX,
+                    position.y() + 63,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            return;
+        }
+
+        /*
+         * Non-probabilistic text still receives a hard width limit.
+         */
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        font,
+                        text,
+                        maxWidth
+                ),
+                centerX,
+                position.y() + 56,
+                CraftScopeUiTheme.TEXT_SECONDARY
+        );
+    }
     private static void drawProcessNode(
             GuiGraphics graphics,
             Font font,

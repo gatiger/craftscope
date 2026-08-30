@@ -64,6 +64,25 @@ public record CraftScopeProductionSummary(
             CraftScopeProductionRoute route,
             long requestedTargetCount
     ) {
+        return summarize(
+                route,
+                requestedTargetCount,
+                false
+        );
+    }
+
+    /*
+     * singleExecution is intended for presentation layers that need
+     * to describe what ONE execution of a process produces.
+     *
+     * Planning callers should continue using the normal two-argument
+     * summarize(...) method.
+     */
+    public static CraftScopeProductionSummary summarize(
+            CraftScopeProductionRoute route,
+            long requestedTargetCount,
+            boolean singleExecution
+    ) {
         if (route == null) {
             return empty();
         }
@@ -80,7 +99,9 @@ public record CraftScopeProductionSummary(
          * probabilistic outputs scale the required attempts.
          */
         long runs =
-                CraftScopeChancePlanner.requiredRuns(
+                singleExecution
+                        ? 1L
+                        : CraftScopeChancePlanner.requiredRuns(
                         route,
                         requested
                 );

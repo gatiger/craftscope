@@ -1,6 +1,7 @@
 package io.github.gatiger.craftscope.mixin;
 
 import io.github.gatiger.craftscope.CraftScopeProjectScreen;
+import io.github.gatiger.craftscope.ui.CraftScopeMarqueeContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import org.spongepowered.asm.mixin.Mixin;
@@ -10,51 +11,43 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 /*
- * Global single-line text-overflow behavior for CraftScopeProjectScreen.
+ * Selected-text marquee behavior for CraftScopeProjectScreen.
  *
- * Old behavior:
+ * Normal overflowing text:
  *
- *     "Player or tamed-wolf k..."
+ *     Player or tamed-wolf k...
  *
- * New behavior:
+ * Selected overflowing text:
  *
- *     The visible text window automatically pans from the beginning
- *     to the end, pauses, then pans back. The returned string always
- *     fits inside the caller's maxWidth, so it remains contained by
- *     the existing panel/row.
+ *     Slowly pans from the beginning to the end,
+ *     pauses, then pans back.
  *
- * This applies everywhere CraftScopeProjectScreen uses fitText(),
- * including:
- *
- * - Production Routes
- * - Process detail titles / methods
- * - Machine and requirement rows
- * - Setup rows
- * - Summary rows that use fitText
- * - Future project-screen containers that use fitText
- *
- * Vertical overflow remains handled by the existing panel scrollbars.
- * This mixin is specifically for a single line that is wider than its
- * container.
+ * This avoids having several unrelated rows moving at the same time.
+ * Renderers explicitly opt selected text into marquee behavior through
+ * CraftScopeMarqueeContext.
  */
 @Mixin(CraftScopeProjectScreen.class)
 public abstract class MixinCraftScopeOverflowTextScroll {
 
+    /*
+     * Slightly longer pauses and slower pixel movement than the
+     * original marquee.
+     */
     @Unique
     private static final long CRAFTSCOPE_TEXT_PAUSE_MS =
-            1200L;
+            1500L;
 
     @Unique
     private static final long CRAFTSCOPE_TEXT_MIN_SCROLL_MS =
-            1400L;
+            1800L;
 
     @Unique
     private static final long CRAFTSCOPE_TEXT_MAX_SCROLL_MS =
-            8000L;
+            10000L;
 
     @Unique
     private static final long CRAFTSCOPE_TEXT_MS_PER_PIXEL =
-            28L;
+            40L;
 
     @Inject(
             method = "fitText",
@@ -73,6 +66,15 @@ public abstract class MixinCraftScopeOverflowTextScroll {
             return;
         }
 
+        /*
+         * Unless the renderer explicitly marks this text as selected,
+         * allow CraftScopeProjectScreen's normal fitText() method to
+         * use its static ellipsis behavior.
+         */
+        if (!CraftScopeMarqueeContext.isActive()) {
+            return;
+        }
+
         Font font =
                 Minecraft.getInstance().font;
 
@@ -80,10 +82,6 @@ public abstract class MixinCraftScopeOverflowTextScroll {
                 font.width(text);
 
         if (fullWidth <= maxWidth) {
-            /*
-             * Let CraftScope's original fitText() return the normal
-             * unmodified string.
-             */
             return;
         }
 
@@ -120,28 +118,27 @@ public abstract class MixinCraftScopeOverflowTextScroll {
 
         if (cyclePosition < CRAFTSCOPE_TEXT_PAUSE_MS) {
 
-            progress = 0.0D;
+            progress =
+                    0.0D;
 
         } else if (cyclePosition
                 < CRAFTSCOPE_TEXT_PAUSE_MS
                 + oneWayScrollMs) {
 
             progress =
-                    (
-                            double
-                    ) (
+                    (double) (
                             cyclePosition
                                     - CRAFTSCOPE_TEXT_PAUSE_MS
-                    ) / (
-                            double
-                    ) oneWayScrollMs;
+                    )
+                            / (double) oneWayScrollMs;
 
         } else if (cyclePosition
                 < CRAFTSCOPE_TEXT_PAUSE_MS
                 + oneWayScrollMs
                 + CRAFTSCOPE_TEXT_PAUSE_MS) {
 
-            progress = 1.0D;
+            progress =
+                    1.0D;
 
         } else {
 
@@ -154,19 +151,13 @@ public abstract class MixinCraftScopeOverflowTextScroll {
             progress =
                     1.0D
                             - (
-                            (
-                                    double
-                            ) reversePosition
-                                    / (
-                                    double
-                            ) oneWayScrollMs
+                            (double) reversePosition
+                                    / (double) oneWayScrollMs
                     );
         }
 
         int desiredPixelOffset =
-                (
-                        int
-                ) Math.round(
+                (int) Math.round(
                         overflowPixels
                                 * craftscope$smoothStep(
                                 progress
@@ -194,8 +185,11 @@ public abstract class MixinCraftScopeOverflowTextScroll {
             return "";
         }
 
-        int startIndex = 0;
-        int removedWidth = 0;
+        int startIndex =
+                0;
+
+        int removedWidth =
+                0;
 
         while (startIndex < text.length()
                 && removedWidth < desiredPixelOffset) {
@@ -234,11 +228,11 @@ public abstract class MixinCraftScopeOverflowTextScroll {
         }
 
         /*
-         * At the far end, force the final characters to become
-         * visible even if variable-width glyphs prevented the pixel
-         * offset from landing exactly on the ideal start position.
+         * At the far end, force the final characters into view even
+         * when variable-width glyphs prevent an exact pixel offset.
          */
         if (desiredPixelOffset > 0) {
+
             while (startIndex < text.length()
                     && font.width(
                     text.substring(
@@ -310,6 +304,7 @@ public abstract class MixinCraftScopeOverflowTextScroll {
         }
 
         if (endIndex <= startIndex) {
+
             int codePoint =
                     text.codePointAt(
                             startIndex
