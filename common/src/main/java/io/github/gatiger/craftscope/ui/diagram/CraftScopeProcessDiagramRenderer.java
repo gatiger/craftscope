@@ -194,6 +194,33 @@ public final class CraftScopeProcessDiagramRenderer {
         float scaleCenterY =
                 (top + bottom) / 2.0F;
 
+        /*
+         * Keep the route title outside the adaptive graph transform.
+         *
+         * Scaling around the center of the embedded diagram pulls
+         * anything near the top downward. The production graph should
+         * scale, but the heading should remain anchored to the top of
+         * the Process Diagram panel.
+         */
+        String routeTitle =
+                route.sourceModName()
+                        .getString()
+                        + ": "
+                        + route.displayName()
+                        .getString();
+
+        graphics.drawCenteredString(
+                font,
+                fitText(
+                        font,
+                        routeTitle,
+                        right - left - 20
+                ),
+                (left + right) / 2,
+                top + 5,
+                CraftScopeUiTheme.SUCCESS
+        );
+
         if (scaled) {
             graphics.pose()
                     .pushPose();
@@ -219,25 +246,6 @@ public final class CraftScopeProcessDiagramRenderer {
                             0.0F
                     );
         }
-
-        String routeTitle =
-                route.sourceModName()
-                        .getString()
-                        + ": "
-                        + route.displayName()
-                        .getString();
-
-        graphics.drawCenteredString(
-                font,
-                fitText(
-                        font,
-                        routeTitle,
-                        right - left - 20
-                ),
-                (left + right) / 2,
-                top + 5,
-                CraftScopeUiTheme.SUCCESS
-        );
 
         DiagramLayout layout =
                 buildDiagramLayout(
@@ -299,14 +307,16 @@ public final class CraftScopeProcessDiagramRenderer {
                     continuedInFullProduction,
                     renderScale,
                     left,
-                    right
+                    right,
+                    layout.continuationCutoffX()
             )
                     || !isVisibleBeforeContinuation(
                     toPosition,
                     continuedInFullProduction,
                     renderScale,
                     left,
-                    right
+                    right,
+                    layout.continuationCutoffX()
             )) {
 
                 continue;
@@ -338,7 +348,8 @@ public final class CraftScopeProcessDiagramRenderer {
                     continuedInFullProduction,
                     renderScale,
                     left,
-                    right
+                    right,
+                    layout.continuationCutoffX()
             )) {
 
                 continue;
@@ -470,7 +481,8 @@ public final class CraftScopeProcessDiagramRenderer {
                     continuedInFullProduction,
                     renderScale,
                     left,
-                    right
+                    right,
+                    layout.continuationCutoffX()
             )) {
 
                 continue;
@@ -657,7 +669,8 @@ public final class CraftScopeProcessDiagramRenderer {
             boolean continuedInFullProduction,
             float renderScale,
             int left,
-            int right
+            int right,
+            int continuationCutoffX
     ) {
         if (!continuedInFullProduction) {
             return true;
@@ -704,12 +717,25 @@ public final class CraftScopeProcessDiagramRenderer {
                 );
 
         /*
-         * Never show a partially clipped node.
+         * Graph layouts may provide a stricter cutoff representing
+         * the right edge of the LAST COMPLETE dependency depth.
+         *
+         * This is what prevents the embedded preview from displaying
+         * half of a production stage.
          */
+        double effectiveRightCutoff =
+                continuationCutoffX
+                        == Integer.MAX_VALUE
+                        ? logicalRightCutoff
+                        : Math.min(
+                        logicalRightCutoff,
+                        continuationCutoffX
+                );
+
         return position.x()
                 >= logicalLeftCutoff
                 && position.right()
-                <= logicalRightCutoff;
+                <= effectiveRightCutoff;
     }
 
     /*
@@ -975,7 +1001,8 @@ public final class CraftScopeProcessDiagramRenderer {
             return new DiagramLayout(
                     nodes,
                     List.of(),
-                    List.of()
+                    List.of(),
+                    Integer.MAX_VALUE
             );
         }
 
@@ -1069,7 +1096,8 @@ public final class CraftScopeProcessDiagramRenderer {
                 positions,
                 buildSequentialConnections(
                         nodes.size()
-                )
+                ),
+                Integer.MAX_VALUE
         );
     }
 
@@ -1765,7 +1793,8 @@ public final class CraftScopeProcessDiagramRenderer {
         return new DiagramLayout(
                 nodes,
                 positions,
-                connections
+                connections,
+                Integer.MAX_VALUE
         );
     }
 
@@ -3442,7 +3471,8 @@ public final class CraftScopeProcessDiagramRenderer {
     private record DiagramLayout(
             List<DiagramNode> nodes,
             List<NodePosition> positions,
-            List<DiagramConnection> connections
+            List<DiagramConnection> connections,
+            int continuationCutoffX
     ) {
         private DiagramLayout {
             nodes =

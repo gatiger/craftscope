@@ -1375,13 +1375,41 @@ public final class CraftScopeFullProductionScreen
                     "Wheel or scrollbar: vertical";
         }
 
-        graphics.drawString(
-                font,
-                hint,
-                viewport.left() + 4,
-                WINDOW_MARGIN + 11,
-                CraftScopeUiTheme.TEXT_MUTED
-        );
+        /*
+         * Keep the control hint on the right side of the header.
+         *
+         * The CraftScope logo/title occupies the left side and the
+         * Back button occupies the far right. Only render the hint
+         * when enough space exists between them.
+         */
+        int hintWidth =
+                font.width(
+                        hint
+                );
+
+        int hintLeftBoundary =
+                WINDOW_MARGIN + 220;
+
+        int hintRightBoundary =
+                width
+                        - WINDOW_MARGIN
+                        - 82;
+
+        int hintX =
+                hintRightBoundary
+                        - hintWidth;
+
+        if (hintX
+                >= hintLeftBoundary) {
+
+            graphics.drawString(
+                    font,
+                    hint,
+                    hintX,
+                    WINDOW_MARGIN + 11,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+        }
     }
 
     /*
