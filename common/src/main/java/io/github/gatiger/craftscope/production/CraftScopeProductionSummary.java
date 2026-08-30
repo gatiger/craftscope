@@ -127,12 +127,25 @@ public record CraftScopeProductionSummary(
                 new LinkedHashMap<>();
 
         /*
-         * Guaranteed production from previous/internal steps.
+         * Production from upstream steps that feeds later steps in
+         * this same route.
          *
-         * Only guaranteed outputs are allowed to cancel required
-         * input demand.
+         * Keep two views:
+         *
+         * expected supply
+         *     Used by planning. A probabilistic upstream route was
+         *     already expanded to enough attempts to meet the
+         *     downstream requirement in expectation.
+         *
+         * nominal supply
+         *     Used to hide those intermediate rows from the final
+         *     Outputs list. Their detailed probability/range remains
+         *     visible in Process Diagram instead.
          */
-        Map<String, ResourceAccumulator> guaranteedSupply =
+        Map<String, Double> internalExpectedSupply =
+                new LinkedHashMap<>();
+
+        Map<String, Long> internalNominalSupply =
                 new LinkedHashMap<>();
 
         /*
@@ -142,8 +155,18 @@ public record CraftScopeProductionSummary(
         Map<String, ResourceAccumulator> produced =
                 new LinkedHashMap<>();
 
-        for (CraftScopeProductionStep step :
-                route.steps()) {
+        for (int stepIndex = 0;
+             stepIndex < route.steps().size();
+             stepIndex++) {
+
+            CraftScopeProductionStep step =
+                    route.steps().get(
+                            stepIndex
+                    );
+
+            boolean internalStep =
+                    stepIndex
+                            < route.steps().size() - 1;
 
             collectMachineRequirements(
                     step,
@@ -154,7 +177,9 @@ public record CraftScopeProductionSummary(
                     step.inputs()) {
 
                 String key =
-                        buildResourceKey(input);
+                        buildResourceFamilyKey(
+                                input
+                        );
 
                 if (input.consumed()) {
                     long amount =
@@ -212,16 +237,32 @@ public record CraftScopeProductionSummary(
                         )
                         .add(amount);
 
-                if (output.isGuaranteed()) {
-                    guaranteedSupply
-                            .computeIfAbsent(
-                                    key,
-                                    ignored ->
-                                            new ResourceAccumulator(
-                                                    output
-                                            )
-                            )
-                            .add(amount);
+                if (internalStep) {
+
+                    String familyKey =
+                            buildResourceFamilyKey(
+                                    output
+                            );
+
+                    double expected =
+                            scaleExpectedAmount(
+                                    output.expectedAmount(),
+                                    runs
+                            );
+
+                    internalExpectedSupply.merge(
+                            familyKey,
+                            expected,
+                            CraftScopeProductionSummary
+                                    ::safeAddExpected
+                    );
+
+                    internalNominalSupply.merge(
+                            familyKey,
+                            amount,
+                            CraftScopeProductionSummary
+                                    ::safeAdd
+                    );
                 }
             }
         }
@@ -254,28 +295,23 @@ public record CraftScopeProductionSummary(
                     )
             );
 
-            if (route.targetOutput().isGuaranteed()) {
-                guaranteedSupply.put(
-                        targetKey,
-                        new ResourceAccumulator(
-                                route.targetOutput(),
-                                targetProduced
-                        )
-                );
-            }
+            /*
+             * The route target is final production, not internal
+             * intermediate supply.
+             */
         }
 
         List<CraftScopeResourceAmount> requiredResources =
                 buildRequiredResources(
                         consumedDemand,
                         reusableDemand,
-                        guaranteedSupply
+                        internalExpectedSupply
                 );
 
         List<CraftScopeResourceAmount> finalOutputs =
                 buildNetOutputs(
                         produced,
-                        guaranteedSupply,
+                        internalNominalSupply,
                         consumedDemand,
                         route.targetOutput()
                 );
@@ -413,7 +449,7 @@ public record CraftScopeProductionSummary(
     buildRequiredResources(
             Map<String, ResourceAccumulator> consumedDemand,
             Map<String, ResourceAccumulator> reusableDemand,
-            Map<String, ResourceAccumulator> guaranteedSupply
+            Map<String, Double> internalExpectedSupply
     ) {
         List<CraftScopeResourceAmount> result =
                 new ArrayList<>();
@@ -424,15 +460,23 @@ public record CraftScopeProductionSummary(
             ResourceAccumulator demand =
                     entry.getValue();
 
-            ResourceAccumulator supply =
-                    guaranteedSupply.get(
-                            entry.getKey()
+            double expectedSupply =
+                    internalExpectedSupply.getOrDefault(
+                            entry.getKey(),
+                            0.0D
                     );
 
+            /*
+             * Items are discrete. Only complete expected items can
+             * satisfy a downstream integer requirement.
+             *
+             * The tiny epsilon protects exact values such as 9.0
+             * from floating-point representation noise.
+             */
             long supplied =
-                    supply == null
-                            ? 0
-                            : supply.amount;
+                    wholeExpectedAmount(
+                            expectedSupply
+                    );
 
             long required =
                     Math.max(
@@ -485,7 +529,7 @@ public record CraftScopeProductionSummary(
     private static List<CraftScopeResourceAmount>
     buildNetOutputs(
             Map<String, ResourceAccumulator> produced,
-            Map<String, ResourceAccumulator> guaranteedSupply,
+            Map<String, Long> internalNominalSupply,
             Map<String, ResourceAccumulator> consumedDemand,
             CraftScopeResourceAmount targetOutput
     ) {
@@ -502,40 +546,78 @@ public record CraftScopeProductionSummary(
                         targetOutput
                 );
 
+        /*
+         * Only an intermediate family that is actually consumed by a
+         * later step should be hidden from final outputs.
+         */
+        Map<String, Long> remainingInternalSuppression =
+                new LinkedHashMap<>();
+
+        for (Map.Entry<String, Long> entry :
+                internalNominalSupply.entrySet()) {
+
+            ResourceAccumulator demand =
+                    consumedDemand.get(
+                            entry.getKey()
+                    );
+
+            if (demand == null
+                    || demand.amount <= 0
+                    || entry.getValue() == null
+                    || entry.getValue() <= 0L) {
+
+                continue;
+            }
+
+            remainingInternalSuppression.put(
+                    entry.getKey(),
+                    entry.getValue()
+            );
+        }
+
         for (Map.Entry<String, ResourceAccumulator> entry :
                 produced.entrySet()) {
-
-            String key =
-                    entry.getKey();
 
             ResourceAccumulator producedResource =
                     entry.getValue();
 
-            ResourceAccumulator guaranteed =
-                    guaranteedSupply.get(key);
+            String familyKey =
+                    buildResourceFamilyKey(
+                            producedResource.representative
+                    );
 
-            ResourceAccumulator demand =
-                    consumedDemand.get(key);
+            long suppress =
+                    remainingInternalSuppression.getOrDefault(
+                            familyKey,
+                            0L
+                    );
 
-            long guaranteedAmount =
-                    guaranteed == null
-                            ? 0
-                            : guaranteed.amount;
-
-            long demandedAmount =
-                    demand == null
-                            ? 0
-                            : demand.amount;
-
-            /*
-             * Only guaranteed production can be assumed to satisfy
-             * a downstream internal input.
-             */
             long internallyUsed =
                     Math.min(
-                            guaranteedAmount,
-                            demandedAmount
+                            producedResource.amount,
+                            suppress
                     );
+
+            if (internallyUsed > 0L) {
+
+                long remainingSuppression =
+                        suppress
+                                - internallyUsed;
+
+                if (remainingSuppression <= 0L) {
+
+                    remainingInternalSuppression.remove(
+                            familyKey
+                    );
+
+                } else {
+
+                    remainingInternalSuppression.put(
+                            familyKey,
+                            remainingSuppression
+                    );
+                }
+            }
 
             long remaining =
                     Math.max(
@@ -596,6 +678,71 @@ public record CraftScopeProductionSummary(
         }
 
         return result;
+    }
+
+    /*
+     * ---------------------------------------------------------
+     * Internal planning helpers
+     * ---------------------------------------------------------
+     */
+
+    private static double scaleExpectedAmount(
+            double expectedAmount,
+            long runs
+    ) {
+        if (expectedAmount <= 0.0D
+                || runs <= 0L) {
+
+            return 0.0D;
+        }
+
+        double result =
+                expectedAmount
+                        * (double) runs;
+
+        return Double.isFinite(
+                result
+        )
+                ? result
+                : Double.MAX_VALUE;
+    }
+
+    private static double safeAddExpected(
+            double left,
+            double right
+    ) {
+        double result =
+                left + right;
+
+        return Double.isFinite(
+                result
+        )
+                ? result
+                : Double.MAX_VALUE;
+    }
+
+    private static long wholeExpectedAmount(
+            double expected
+    ) {
+        if (!Double.isFinite(
+                expected
+        )) {
+
+            return Long.MAX_VALUE;
+        }
+
+        if (expected <= 0.0D) {
+            return 0L;
+        }
+
+        if (expected >= Long.MAX_VALUE) {
+            return Long.MAX_VALUE;
+        }
+
+        return (long) Math.floor(
+                expected
+                        + 0.0000001D
+        );
     }
 
     /*

@@ -547,18 +547,20 @@ public final class CraftScopeProductionRouteExpander {
         for (CraftScopeResourceAmount input :
                 step.inputs()) {
 
-            long amount =
+            /*
+             * Consumed resources scale with the number of executions.
+             *
+             * Reusable tools/catalysts remain a one-time requirement.
+             */
+            long inputFactor =
                     input.consumed()
-                            ? safeMultiply(
-                            input.amount(),
-                            factor
-                    )
-                            : input.amount();
+                            ? factor
+                            : 1L;
 
             inputs.add(
-                    copyResource(
+                    scaleResource(
                             input,
-                            amount
+                            inputFactor
                     )
             );
         }
@@ -570,12 +572,9 @@ public final class CraftScopeProductionRouteExpander {
                 step.outputs()) {
 
             outputs.add(
-                    copyResource(
+                    scaleResource(
                             output,
-                            safeMultiply(
-                                    output.amount(),
-                                    factor
-                            )
+                            factor
                     )
             );
         }
@@ -589,10 +588,76 @@ public final class CraftScopeProductionRouteExpander {
         );
     }
 
-    private static CraftScopeResourceAmount copyResource(
+    /*
+     * Scale a resource across multiple executions while preserving
+     * CraftScope's complete yield model.
+     *
+     * For a probabilistic result:
+     *
+     *     chance of >=1 after N executions
+     *
+     * becomes:
+     *
+     *     1 - (1 - p)^N
+     *
+     * Expected amount and min/max range scale independently.
+     *
+     * Example:
+     *
+     *     one kill:
+     *         chance  = 17.9%
+     *         range   = 0-6
+     *         expected = 0.286
+     *
+     *     four kills:
+     *         chance  ~= 54.5%
+     *         range   = 0-24
+     *         expected ~= 1.144
+     */
+    private static CraftScopeResourceAmount scaleResource(
             CraftScopeResourceAmount resource,
-            long amount
+            long factor
     ) {
+        if (resource == null) {
+            return null;
+        }
+
+        if (factor <= 1L) {
+            return resource;
+        }
+
+        long amount =
+                safeMultiply(
+                        resource.amount(),
+                        factor
+                );
+
+        long minimum =
+                safeMultiply(
+                        resource.minimumAmount(),
+                        factor
+                );
+
+        long maximum =
+                safeMultiply(
+                        resource.maximumAmount(),
+                        factor
+                );
+
+        double expected =
+                scaleExpectedAmount(
+                        resource.expectedAmount(),
+                        factor,
+                        minimum,
+                        maximum
+                );
+
+        double chance =
+                scaleChance(
+                        resource.chance(),
+                        factor
+                );
+
         return new CraftScopeResourceAmount(
                 resource.kind(),
                 resource.id(),
@@ -600,9 +665,85 @@ public final class CraftScopeProductionRouteExpander {
                 amount,
                 resource.unit(),
                 resource.consumed(),
-                resource.chance(),
+                chance,
                 resource.acceptedVariantIds(),
+                minimum,
+                maximum,
+                expected,
                 resource.itemIdentity()
+        );
+    }
+
+    /*
+     * Probability that at least one successful outcome occurs over
+     * multiple independent executions.
+     */
+    private static double scaleChance(
+            double chance,
+            long factor
+    ) {
+        if (chance <= 0.0D) {
+            return 0.0D;
+        }
+
+        if (chance >= 1.0D) {
+            return 1.0D;
+        }
+
+        if (factor <= 1L) {
+            return chance;
+        }
+
+        double scaled =
+                1.0D
+                        - Math.pow(
+                        1.0D - chance,
+                        (double) factor
+                );
+
+        return Math.max(
+                0.0D,
+                Math.min(
+                        1.0D,
+                        scaled
+                )
+        );
+    }
+
+    /*
+     * Keep expected yield finite and inside the scaled range even
+     * when an extremely large execution count approaches numeric
+     * limits.
+     */
+    private static double scaleExpectedAmount(
+            double expected,
+            long factor,
+            long minimum,
+            long maximum
+    ) {
+        if (expected <= 0.0D
+                || factor <= 0L) {
+
+            return 0.0D;
+        }
+
+        double scaled =
+                expected
+                        * (double) factor;
+
+        if (!Double.isFinite(
+                scaled
+        )) {
+
+            return (double) maximum;
+        }
+
+        return Math.max(
+                (double) minimum,
+                Math.min(
+                        (double) maximum,
+                        scaled
+                )
         );
     }
 
