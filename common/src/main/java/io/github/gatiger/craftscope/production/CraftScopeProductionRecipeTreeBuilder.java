@@ -317,6 +317,38 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         }
 
         /*
+         * A broad equivalent ingredient family must stay broad while
+         * Recipe Tree expands upstream production.
+         *
+         * Without this adaptation the builder uses the first concrete
+         * accepted item as its stable representative. For vanilla wood
+         * tags that is commonly Acacia, producing a misleading tree:
+         *
+         *     Any Slab
+         *         -> Acacia Planks
+         *             -> Stripped Acacia Log
+         *
+         * The production route family policy already knows the correct
+         * logical relationship:
+         *
+         *     Any Slab
+         *         -> Any Planks
+         *             -> Any Log
+         *
+         * Apply that same policy here after the concrete recipe has
+         * been selected. Recipe IDs and process methods are preserved;
+         * only interchangeable material-family resources are widened.
+         *
+         * Genuine alternatives such as Leather/Cardboard are excluded
+         * because they are not equivalent ingredient families.
+         */
+        selectedRoute =
+                adaptRecipeTreeRouteToEquivalentFamily(
+                        selectedRoute,
+                        acceptedVariants
+                );
+
+        /*
          * Chance-aware planning is centralized in the production
          * layer. A 25% output no longer behaves like one guaranteed
          * item per run: Recipe Tree plans enough attempts for the
@@ -1183,6 +1215,50 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                 true,
                 false
         );
+    }
+    private static CraftScopeProductionRoute
+    adaptRecipeTreeRouteToEquivalentFamily(
+            CraftScopeProductionRoute route,
+            List<ItemStack> acceptedVariants
+    ) {
+        if (route == null
+                || acceptedVariants == null
+                || acceptedVariants.size() <= 1
+                || !CraftScopeRecipeVariantFamilyPolicy
+                .isEquivalentIngredientFamily(
+                        acceptedVariants
+                )) {
+
+            return route;
+        }
+
+        /*
+         * Build the same kind of family request that the Production
+         * Route expander receives from a broad recipe ingredient.
+         *
+         * normalizeFamilyResource() currently recognizes the logical
+         * vanilla wood chain (logs -> planks -> slabs). Families that
+         * are equivalent for selection purposes but do not have an
+         * upstream family transform simply return unchanged.
+         */
+        CraftScopeResourceAmount familyRequest =
+                CraftScopeResourceAmount.itemVariants(
+                        acceptedVariants,
+                        1L,
+                        true
+                );
+
+        CraftScopeResourceAmount normalizedFamily =
+                CraftScopeRecipeVariantFamilyPolicy
+                        .normalizeFamilyResource(
+                                familyRequest
+                        );
+
+        return CraftScopeRecipeVariantFamilyPolicy
+                .adaptRoute(
+                        route,
+                        normalizedFamily
+                );
     }
     private static ItemStack getRepresentativeStack(
             CraftScopeResourceAmount resource,
