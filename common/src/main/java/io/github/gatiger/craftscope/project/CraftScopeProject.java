@@ -39,6 +39,25 @@ public class CraftScopeProject {
      */
     private Map<String, String> ingredientVariantOverrides;
 
+    /*
+     * Persisted Production Routes selection.
+     *
+     * These are intentionally independent from recipeOverrides.
+     *
+     * Example:
+     *
+     *     source = "create"
+     *     process = "minecraft:crafting"
+     *
+     * The selected source/process acts as the player's preferred
+     * production context across the whole Recipe Tree.
+     *
+     * Older projects deserialize both fields as null and continue
+     * using CraftScope's normal automatic route selection.
+     */
+    private String productionProcessSourceId;
+    private String productionProcessId;
+
     public CraftScopeProject(
             String id,
             String name,
@@ -52,6 +71,8 @@ public class CraftScopeProject {
         this.targetCount = targetCount;
         this.recipeOverrides = new HashMap<>();
         this.ingredientVariantOverrides = new HashMap<>();
+        this.productionProcessSourceId = null;
+        this.productionProcessId = null;
     }
 
     public String getId() {
@@ -110,6 +131,14 @@ public class CraftScopeProject {
         );
     }
 
+    public String getProductionProcessSourceId() {
+        return productionProcessSourceId;
+    }
+
+    public String getProductionProcessId() {
+        return productionProcessId;
+    }
+
     public void setName(
             String name
     ) {
@@ -142,6 +171,45 @@ public class CraftScopeProject {
     ) {
         this.targetCount =
                 targetCount;
+    }
+
+    public void setProductionProcessSelection(
+            String sourceId,
+            String processId
+    ) {
+        String normalizedSource =
+                sourceId == null
+                        || sourceId.isBlank()
+                        ? null
+                        : sourceId;
+
+        String normalizedProcess =
+                processId == null
+                        || processId.isBlank()
+                        ? null
+                        : processId;
+
+        /*
+         * A partial selection is never useful. Keep the saved state
+         * either fully valid or fully empty.
+         */
+        if (normalizedSource == null
+                || normalizedProcess == null) {
+
+            clearProductionProcessSelection();
+            return;
+        }
+
+        productionProcessSourceId =
+                normalizedSource;
+
+        productionProcessId =
+                normalizedProcess;
+    }
+
+    public void clearProductionProcessSelection() {
+        productionProcessSourceId = null;
+        productionProcessId = null;
     }
 
     public void setRecipeOverride(
