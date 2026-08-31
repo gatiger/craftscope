@@ -215,6 +215,42 @@ public class CraftScopeProjectScreen
         selectedProductionProcessId =
                 processId;
     }
+    /*
+     * Convert persisted ingredient selections into ResourceLocations
+     * for the Recipe Tree builder.
+     *
+     * This used to live in the legacy Recipe Source mixin. Production
+     * Routes is now the only source/process selector, so the screen
+     * owns this conversion directly.
+     */
+    private Map<String, ResourceLocation>
+    getIngredientVariantOverrides() {
+
+        Map<String, ResourceLocation> result =
+                new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry :
+                project
+                        .getIngredientVariantOverrides()
+                        .entrySet()) {
+
+            ResourceLocation id =
+                    ResourceLocation.tryParse(
+                            entry.getValue()
+                    );
+
+            if (id != null) {
+                result.put(
+                        entry.getKey(),
+                        id
+                );
+            }
+        }
+
+        return Map.copyOf(
+                result
+        );
+    }
     @Override
     protected void init() {
         super.init();
@@ -513,7 +549,11 @@ public class CraftScopeProjectScreen
         currentTree = CraftScopeProductionRecipeTreeBuilder.resolveTree(
                 target,
                 project.getTargetCount(),
-                recipeOverrides
+                recipeOverrides,
+                getIngredientVariantOverrides(),
+                null,
+                selectedProductionProcessSourceId,
+                selectedProductionProcessId
         );
 
         currentMaterialSummary =
