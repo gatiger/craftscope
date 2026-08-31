@@ -1,9 +1,8 @@
 package io.github.gatiger.craftscope.material;
 
+import io.github.gatiger.craftscope.production.CraftScopeItemIdentity;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeNode;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
-import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
@@ -133,11 +132,14 @@ public final class CraftScopeMaterialSummarizer {
             return;
         }
 
+        List<ItemStack> groupedVariants =
+                variants.isEmpty()
+                        ? List.of(representative)
+                        : variants;
+
         String groupKey =
                 buildVariantGroupKey(
-                        variants.isEmpty()
-                                ? List.of(representative)
-                                : variants
+                        groupedVariants
                 );
 
         MaterialAccumulator existing =
@@ -150,9 +152,7 @@ public final class CraftScopeMaterialSummarizer {
                     new MaterialAccumulator(
                             representative,
                             node.getRequiredCount(),
-                            variants.isEmpty()
-                                    ? List.of(representative)
-                                    : variants
+                            groupedVariants
                     )
             );
 
@@ -163,13 +163,30 @@ public final class CraftScopeMaterialSummarizer {
                 groupKey,
                 new MaterialAccumulator(
                         existing.stack(),
-                        existing.requiredCount()
-                                + node.getRequiredCount(),
+                        safeAdd(
+                                existing.requiredCount(),
+                                node.getRequiredCount()
+                        ),
                         existing.acceptedVariants()
                 )
         );
     }
 
+    /*
+     * Component-aware variant normalization.
+     *
+     * ResourceLocation alone cannot distinguish items such as:
+     *
+     *     Poison Tipped Arrow
+     *     Slowness Tipped Arrow
+     *
+     * Both use minecraft:tipped_arrow as their base item ID.
+     *
+     * CraftScopeItemIdentity preserves Minecraft data components so
+     * those variants remain separate while legitimate ingredient
+     * families such as "Any Log" can still contain several accepted
+     * stacks.
+     */
     private static List<ItemStack> normalizeVariants(
             List<ItemStack> variants
     ) {
@@ -179,7 +196,7 @@ public final class CraftScopeMaterialSummarizer {
             return List.of();
         }
 
-        Map<String, ItemStack> unique =
+        Map<CraftScopeItemIdentity, ItemStack> unique =
                 new LinkedHashMap<>();
 
         for (ItemStack stack : variants) {
@@ -190,8 +207,13 @@ public final class CraftScopeMaterialSummarizer {
                 continue;
             }
 
+            CraftScopeItemIdentity identity =
+                    CraftScopeItemIdentity.fromStack(
+                            stack
+                    );
+
             unique.putIfAbsent(
-                    getItemKey(stack),
+                    identity,
                     stack.copy()
             );
         }
@@ -204,7 +226,7 @@ public final class CraftScopeMaterialSummarizer {
         result.sort(
                 Comparator.comparing(
                         CraftScopeMaterialSummarizer
-                                ::getItemKey
+                                ::getIdentityKey
                 )
         );
 
@@ -225,22 +247,34 @@ public final class CraftScopeMaterialSummarizer {
             }
 
             builder.append(
-                    getItemKey(variant)
+                    getIdentityKey(
+                            variant
+                    )
             );
         }
 
         return builder.toString();
     }
 
-    private static String getItemKey(
+    private static String getIdentityKey(
             ItemStack stack
     ) {
-        ResourceLocation id =
-                BuiltInRegistries.ITEM.getKey(
-                        stack.getItem()
-                );
+        return CraftScopeItemIdentity
+                .fromStack(stack)
+                .toString();
+    }
 
-        return id.toString();
+    private static int safeAdd(
+            int first,
+            int second
+    ) {
+        if (second > 0
+                && first > Integer.MAX_VALUE - second) {
+
+            return Integer.MAX_VALUE;
+        }
+
+        return first + second;
     }
 
     private record MaterialAccumulator(

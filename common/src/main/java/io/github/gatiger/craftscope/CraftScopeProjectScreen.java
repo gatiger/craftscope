@@ -855,40 +855,117 @@ public class CraftScopeProjectScreen
         }
     }
 
+    private int getRecipeRoutePanelWidth() {
+        int availableWidth =
+                getContentRight()
+                        - getContentLeft();
+
+        return Math.min(
+                155,
+                Math.max(
+                        120,
+                        availableWidth / 5
+                )
+        );
+    }
+
+    private int getRecipeTreePanelLeft() {
+        return getContentLeft()
+                + getRecipeRoutePanelWidth()
+                + 6;
+    }
+
     private void renderRecipeTree(
             GuiGraphics graphics,
             int mouseX,
             int mouseY
     ) {
-        int panelLeft = getContentLeft();
-        int panelRight = getContentRight();
-        int panelTop = CONTENT_TITLE_Y - 4;
-        int panelBottom =
-                getWindowBottom() - CONTENT_BOTTOM_MARGIN;
+        int routesLeft =
+                getContentLeft();
 
+        int routeWidth =
+                getRecipeRoutePanelWidth();
+
+        int routesRight =
+                routesLeft
+                        + routeWidth;
+
+        int treePanelLeft =
+                routesRight + 6;
+
+        int treePanelRight =
+                getContentRight();
+
+        int panelTop =
+                CONTENT_TITLE_Y - 4;
+
+        int panelBottom =
+                getWindowBottom()
+                        - CONTENT_BOTTOM_MARGIN;
+
+        /*
+         * -----------------------------------------------------
+         * Production Routes
+         * -----------------------------------------------------
+         *
+         * Recipe Tree now exposes the same root production-route
+         * choice as Process Diagram. Selecting a row here changes
+         * the shared selectedProductionRouteIndex. The existing
+         * route-selection synchronization mixin then updates the
+         * root Recipe Tree override whenever the chosen process
+         * belongs to a different material route.
+         */
         drawPanel(
                 graphics,
-                panelLeft,
+                routesLeft,
                 panelTop,
-                panelRight,
+                routesRight,
                 panelBottom
         );
 
-        CraftScopeUiTheme.drawSectionHeader(
+        drawSectionTitle(
                 graphics,
-                panelLeft + 1,
-                panelTop + 1,
-                panelRight - 1,
-                CONTENT_VIEWPORT_TOP - 2
+                routesLeft,
+                panelTop,
+                routesRight,
+                "Production Routes"
         );
 
-        graphics.drawCenteredString(
-                font,
-                "Recipe Tree",
-                getContentCenterX(),
-                CONTENT_TITLE_Y + 3,
-                CraftScopeUiTheme.TEXT_PRIMARY
+        renderRecipeProductionRoutes(
+                graphics,
+                routesLeft,
+                panelTop,
+                routesRight,
+                panelBottom
         );
+
+        /*
+         * -----------------------------------------------------
+         * Recipe Tree
+         * -----------------------------------------------------
+         */
+        drawPanel(
+                graphics,
+                treePanelLeft,
+                panelTop,
+                treePanelRight,
+                panelBottom
+        );
+
+        drawSectionTitle(
+                graphics,
+                treePanelLeft,
+                panelTop,
+                treePanelRight,
+                "Recipe Tree"
+        );
+
+        int treeCenterX =
+                treePanelLeft
+                        + (
+                        treePanelRight
+                                - treePanelLeft
+                ) / 2;
 
         if (currentTree == null
                 || currentTree.getRoot() == null) {
@@ -896,33 +973,40 @@ public class CraftScopeProjectScreen
             graphics.drawCenteredString(
                     font,
                     "Select a target item to build a recipe tree.",
-                    getContentCenterX(),
+                    treeCenterX,
                     CONTENT_VIEWPORT_TOP + 12,
                     CraftScopeUiTheme.TEXT_MUTED
             );
+
             return;
         }
 
-        int viewportTop = CONTENT_VIEWPORT_TOP;
-        int viewportBottom = getViewportBottom();
+        int viewportTop =
+                CONTENT_VIEWPORT_TOP;
+
+        int viewportBottom =
+                getViewportBottom();
+
         int viewportHeight =
-                viewportBottom - viewportTop;
+                viewportBottom
+                        - viewportTop;
 
         int treeLeft =
                 Math.max(
-                        getContentLeft() + 12,
-                        getContentCenterX() - 140
+                        treePanelLeft + 12,
+                        treeCenterX - 140
                 );
 
         graphics.enableScissor(
-                getContentLeft() + 1,
+                treePanelLeft + 1,
                 viewportTop,
-                getContentRight() - 1,
+                treePanelRight - 1,
                 viewportBottom
         );
 
         int rowY =
-                viewportTop - (int) treeScroll;
+                viewportTop
+                        - (int) treeScroll;
 
         renderRecipeNode(
                 graphics,
@@ -953,6 +1037,145 @@ public class CraftScopeProjectScreen
         );
     }
 
+    private void renderRecipeProductionRoutes(
+            GuiGraphics graphics,
+            int left,
+            int top,
+            int right,
+            int bottom
+    ) {
+        int rowTop =
+                top + 25;
+
+        int rowHeight =
+                22;
+
+        int availableHeight =
+                bottom
+                        - rowTop
+                        - 4;
+
+        int maxVisible =
+                Math.max(
+                        0,
+                        availableHeight
+                                / rowHeight
+                );
+
+        ItemStack target =
+                getTargetStack();
+
+        if (target.isEmpty()) {
+            graphics.drawString(
+                    font,
+                    "Select a target item.",
+                    left + 8,
+                    rowTop + 6,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            return;
+        }
+
+        if (productionRoutes.isEmpty()) {
+            graphics.drawString(
+                    font,
+                    "No production routes",
+                    left + 8,
+                    rowTop + 6,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            graphics.drawString(
+                    font,
+                    "were found.",
+                    left + 8,
+                    rowTop + 20,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+
+            return;
+        }
+
+        int visibleCount =
+                Math.min(
+                        productionRoutes.size(),
+                        maxVisible
+                );
+
+        for (int i = 0;
+             i < visibleCount;
+             i++) {
+
+            CraftScopeProductionRoute route =
+                    productionRoutes.get(i);
+
+            int rowY =
+                    rowTop
+                            + i * rowHeight;
+
+            boolean selected =
+                    i
+                            == selectedProductionRouteIndex;
+
+            if (selected) {
+                graphics.fill(
+                        left + 4,
+                        rowY,
+                        right - 4,
+                        rowY + rowHeight - 2,
+                        CraftScopeUiTheme.ACCENT_BACKGROUND
+                );
+
+                CraftScopeUiTheme.drawBorder(
+                        graphics,
+                        left + 4,
+                        rowY,
+                        right - 4,
+                        rowY + rowHeight - 2,
+                        CraftScopeUiTheme.ACCENT
+                );
+            }
+
+            String label =
+                    fitText(
+                            getProductionRouteLabel(
+                                    route
+                            ),
+                            right
+                                    - left
+                                    - 18
+                    );
+
+            graphics.drawString(
+                    font,
+                    label,
+                    left + 9,
+                    rowY + 6,
+                    selected
+                            ? CraftScopeUiTheme.TEXT_PRIMARY
+                            : CraftScopeUiTheme.TEXT_SECONDARY
+            );
+        }
+
+        if (productionRoutes.size()
+                > visibleCount) {
+
+            int hiddenCount =
+                    productionRoutes.size()
+                            - visibleCount;
+
+            graphics.drawString(
+                    font,
+                    "+"
+                            + hiddenCount
+                            + " more",
+                    left + 9,
+                    bottom - 13,
+                    CraftScopeUiTheme.TEXT_MUTED
+            );
+        }
+    }
     private int renderRecipeNode(
             GuiGraphics graphics,
             CraftScopeRecipeNode node,
@@ -4459,6 +4682,15 @@ public class CraftScopeProjectScreen
 
         if (activeView == ViewMode.RECIPE_TREE
                 && button == 0
+                && handleRecipeProductionRouteClick(
+                mouseX,
+                mouseY
+        )) {
+            return true;
+        }
+
+        if (activeView == ViewMode.RECIPE_TREE
+                && button == 0
                 && handleTreeClick(
                 mouseX,
                 mouseY
@@ -4699,6 +4931,104 @@ public class CraftScopeProjectScreen
         return true;
     }
 
+    private boolean handleRecipeProductionRouteClick(
+            double mouseX,
+            double mouseY
+    ) {
+        if (productionRoutes.isEmpty()) {
+            return false;
+        }
+
+        int left =
+                getContentLeft();
+
+        int right =
+                left
+                        + getRecipeRoutePanelWidth();
+
+        int top =
+                CONTENT_TITLE_Y - 4;
+
+        int bottom =
+                getWindowBottom()
+                        - CONTENT_BOTTOM_MARGIN;
+
+        int rowTop =
+                top + 25;
+
+        int rowHeight =
+                22;
+
+        int availableHeight =
+                bottom
+                        - rowTop
+                        - 4;
+
+        int maxVisible =
+                Math.max(
+                        0,
+                        availableHeight
+                                / rowHeight
+                );
+
+        int visibleCount =
+                Math.min(
+                        productionRoutes.size(),
+                        maxVisible
+                );
+
+        if (mouseX < left + 4
+                || mouseX >= right - 4
+                || mouseY < rowTop
+                || mouseY >= rowTop
+                + visibleCount
+                * rowHeight) {
+
+            return false;
+        }
+
+        int clickedIndex =
+                (int) (
+                        (
+                                mouseY
+                                        - rowTop
+                        )
+                                / rowHeight
+                );
+
+        if (clickedIndex < 0
+                || clickedIndex
+                >= visibleCount) {
+
+            return false;
+        }
+
+        selectedProductionRouteIndex =
+                clickedIndex;
+
+        selectedDiagramNodeIndex =
+                -1;
+
+        /*
+         * Deliberately resolve the selected route immediately.
+         *
+         * MixinCraftScopeProcessRouteSelectionSync injects into
+         * getSelectedProductionRoute(). Calling it here gives the
+         * Recipe Tree route panel the exact same synchronization
+         * behavior as selecting a row on Process Diagram:
+         *
+         * - same material route -> keep the current tree
+         * - different material route -> update root override,
+         *   save the project, and rebuild the tree
+         *
+         * Total Materials therefore sees the selected route before
+         * the player opens that tab.
+         */
+        getSelectedProductionRoute();
+
+        return true;
+    }
+
     private boolean handleTreeClick(
             double mouseX,
             double mouseY
@@ -4709,8 +5039,11 @@ public class CraftScopeProjectScreen
             return false;
         }
 
-        int viewportTop = CONTENT_VIEWPORT_TOP;
-        int viewportBottom = getViewportBottom();
+        int viewportTop =
+                CONTENT_VIEWPORT_TOP;
+
+        int viewportBottom =
+                getViewportBottom();
 
         if (mouseY < viewportTop
                 || mouseY >= viewportBottom) {
@@ -4718,14 +5051,25 @@ public class CraftScopeProjectScreen
             return false;
         }
 
+        int treePanelLeft =
+                getRecipeTreePanelLeft();
+
+        int treeCenterX =
+                treePanelLeft
+                        + (
+                        getContentRight()
+                                - treePanelLeft
+                ) / 2;
+
         int treeLeft =
                 Math.max(
-                        getContentLeft() + 12,
-                        getContentCenterX() - 140
+                        treePanelLeft + 12,
+                        treeCenterX - 140
                 );
 
         int rowY =
-                viewportTop - (int) treeScroll;
+                viewportTop
+                        - (int) treeScroll;
 
         return handleNodeClick(
                 currentTree.getRoot(),
@@ -4737,7 +5081,6 @@ public class CraftScopeProjectScreen
                 mouseY
         ).handled();
     }
-
     private ClickResult handleNodeClick(
             CraftScopeRecipeNode node,
             String nodePath,
