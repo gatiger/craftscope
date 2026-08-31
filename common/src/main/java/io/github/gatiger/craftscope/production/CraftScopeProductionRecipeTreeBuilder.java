@@ -109,6 +109,52 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             Map<String, ResourceLocation> ingredientVariantOverrides,
             String rootSourceModId
     ) {
+        return resolveTree(
+                target,
+                targetCount,
+                recipeOverrides,
+                ingredientVariantOverrides,
+                rootSourceModId,
+                null,
+                null
+        );
+    }
+
+    /*
+     * preferredProcessSourceId + preferredProcessId come from the
+     * shared Production Routes tree.
+     *
+     * They are a contextual preference/filter:
+     *
+     * - If a Recipe Tree node has one or more routes matching that
+     *   source/process, only those routes are offered.
+     *
+     * - If the selected process does not apply to that node, the
+     *   node keeps its normal recipe choices.
+     *
+     * Example:
+     *
+     *   Selected: Create -> Crafting
+     *
+     *   Lectern:
+     *       no Create crafting alternative -> normal Minecraft route
+     *
+     *   Book:
+     *       Create cardboard crafting exists -> show/select Create
+     *       crafting choices only
+     *
+     * This lets one mod participate where appropriate without
+     * requiring that mod to define every intermediate material.
+     */
+    public static CraftScopeRecipeTree resolveTree(
+            ItemStack target,
+            int targetCount,
+            Map<String, ResourceLocation> recipeOverrides,
+            Map<String, ResourceLocation> ingredientVariantOverrides,
+            String rootSourceModId,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
+    ) {
         if (target == null
                 || target.isEmpty()
                 || targetCount <= 0) {
@@ -132,6 +178,20 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         ? null
                         : rootSourceModId;
 
+        String processSourceFilter =
+                preferredProcessSourceId == null
+                        || preferredProcessSourceId.isBlank()
+                        || "craftscope".equals(
+                        preferredProcessSourceId
+                )
+                        ? null
+                        : preferredProcessSourceId;
+
+        ResourceLocation processFilter =
+                processSourceFilter == null
+                        ? null
+                        : preferredProcessId;
+
         CraftScopeRecipeNode root =
                 resolveNode(
                         target,
@@ -142,7 +202,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         variantOverrides,
                         new HashSet<>(),
                         0,
-                        sourceFilter
+                        sourceFilter,
+                        processSourceFilter,
+                        processFilter
                 );
 
         return new CraftScopeRecipeTree(
@@ -158,7 +220,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             Map<String, ResourceLocation> ingredientVariantOverrides,
             Set<String> activePath,
             int depth,
-            String sourceFilter
+            String sourceFilter,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
     ) {
         ItemStack stack =
                 requestedStack.copy();
@@ -214,7 +278,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                 findCandidateRoutes(
                         stack,
                         activePath,
-                        sourceFilter
+                        sourceFilter,
+                        preferredProcessSourceId,
+                        preferredProcessId
                 );
 
         if (candidates.isEmpty()) {
@@ -410,7 +476,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                             ingredientVariantOverrides,
                             activePath,
                             depth + 1,
-                            null
+                            null,
+                            preferredProcessSourceId,
+                            preferredProcessId
                     );
 
             node.addChild(
@@ -428,7 +496,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
     private static List<CraftScopeProductionRoute> findCandidateRoutes(
             ItemStack target,
             Set<String> activePath,
-            String sourceFilter
+            String sourceFilter,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
     ) {
         List<CraftScopeProductionRoute> directRoutes =
                 CraftScopeProductionRouteQuery.findDirectRoutes(
@@ -470,8 +540,172 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             );
         }
 
+        return filterCandidatesByPreferredProductionProcess(
+                candidates,
+                preferredProcessSourceId,
+                preferredProcessId
+        );
+    }
+
+    private static List<CraftScopeProductionRoute>
+    filterCandidatesByPreferredProductionProcess(
+            List<CraftScopeProductionRoute> candidates,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
+    ) {
+        if (candidates == null
+                || candidates.isEmpty()
+                || preferredProcessSourceId == null
+                || preferredProcessSourceId.isBlank()
+                || preferredProcessId == null) {
+
+            return candidates == null
+                    ? List.of()
+                    : List.copyOf(
+                    candidates
+            );
+        }
+
+        List<CraftScopeProductionRoute> matching =
+                new ArrayList<>();
+
+        for (CraftScopeProductionRoute route :
+                candidates) {
+
+            if (routeMatchesProductionProcess(
+                    route,
+                    preferredProcessSourceId,
+                    preferredProcessId
+            )) {
+
+                matching.add(
+                        route
+                );
+            }
+        }
+
+        /*
+         * Important fallback:
+         *
+         * A selected Create process should influence nodes where
+         * Create can actually participate, but should not make
+         * ordinary vanilla-only intermediates disappear.
+         */
+        if (matching.isEmpty()) {
+            return List.copyOf(
+                    candidates
+            );
+        }
+
         return List.copyOf(
-                candidates
+                matching
+        );
+    }
+
+    private static boolean routeMatchesProductionProcess(
+            CraftScopeProductionRoute route,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
+    ) {
+        if (route == null
+                || preferredProcessSourceId == null
+                || preferredProcessSourceId.isBlank()
+                || preferredProcessId == null) {
+
+            return false;
+        }
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeProductionMethod method :
+                    step.methods()) {
+
+                if (!preferredProcessId.equals(
+                        method.processId()
+                )) {
+
+                    continue;
+                }
+
+                if (methodMatchesProductionSource(
+                        method,
+                        preferredProcessSourceId
+                )) {
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private static boolean methodMatchesProductionSource(
+            CraftScopeProductionMethod method,
+            String preferredProcessSourceId
+    ) {
+        if (method == null
+                || preferredProcessSourceId == null
+                || preferredProcessSourceId.isBlank()) {
+
+            return false;
+        }
+
+        String methodSource =
+                method.sourceModId();
+
+        /*
+         * A non-Minecraft method is an actual modded process
+         * capability. Its provider owns the process even when the
+         * underlying recipe ID belongs to Minecraft or another mod.
+         *
+         * Example:
+         *     Create Bulk Blasting using minecraft:* smelting data
+         *     belongs to Create, not Minecraft.
+         */
+        if (methodSource != null
+                && !methodSource.isBlank()
+                && !"minecraft".equals(
+                methodSource
+        )) {
+
+            return preferredProcessSourceId.equals(
+                    methodSource
+            );
+        }
+
+        /*
+         * Generic Minecraft crafting/smelting methods are grouped by
+         * the recipe owner's namespace when recipe IDs are available.
+         *
+         * create:book_from_cardboard + minecraft crafting machinery
+         * therefore appears as:
+         *
+         *     Create -> Crafting
+         */
+        if (!method.recipeIds().isEmpty()) {
+
+            for (ResourceLocation recipeId :
+                    method.recipeIds()) {
+
+                if (recipeId != null
+                        && preferredProcessSourceId.equals(
+                        recipeId.getNamespace()
+                )) {
+
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /*
+         * No recipe IDs: fall back to the method's explicit source.
+         */
+        return preferredProcessSourceId.equals(
+                methodSource
         );
     }
 

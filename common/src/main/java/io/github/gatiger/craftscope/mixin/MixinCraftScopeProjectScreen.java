@@ -67,6 +67,16 @@ public abstract class MixinCraftScopeProjectScreen {
     @Final
     private CraftScopeProject project;
 
+    /*
+     * Shared Production Routes process context from
+     * CraftScopeProjectScreen.
+     */
+    @Shadow
+    private String selectedProductionProcessSourceId;
+
+    @Shadow
+    private ResourceLocation selectedProductionProcessId;
+
     @Unique
     private static final int CRAFTSCOPE_SOURCE_ROW_HEIGHT = 20;
 
@@ -118,7 +128,9 @@ public abstract class MixinCraftScopeProjectScreen {
                 targetCount,
                 overrides,
                 craftscope$getIngredientVariantOverrides(),
-                craftscope$selectedRecipeSourceId
+                craftscope$selectedRecipeSourceId,
+                selectedProductionProcessSourceId,
+                selectedProductionProcessId
         );
     }
 
