@@ -598,7 +598,9 @@ public class CraftScopeProjectScreen
         List<CraftScopeProductionRoute> routes =
                 CraftScopeProductionRouteQuery.findRoutes(
                         target,
-                        currentTree
+                        currentTree,
+                        selectedProductionProcessSourceId,
+                        selectedProductionProcessId
                 );
 
         productionRoutes =
@@ -1268,6 +1270,7 @@ public class CraftScopeProjectScreen
                 );
 
         preserveOrChooseProductionProcessSelection();
+        synchronizeSelectedProductionProcessMethods();
         ensureSelectedProductionRouteSourceExpanded();
         clampRecipeProductionRouteScroll();
     }
@@ -1761,6 +1764,264 @@ public class CraftScopeProjectScreen
         return null;
     }
 
+    /*
+     * Keep Process Diagram's per-step method state aligned with the
+     * authoritative Production Routes source/process selection.
+     *
+     * The selected process is a preference, not a requirement that
+     * every step use the same machine. We therefore update only steps
+     * that actually offer the selected source/process and leave other
+     * steps on their normal/manual methods.
+     *
+     * Examples:
+     *
+     *   Create -> Bulk Blasting
+     *       selects Bulk Blasting on smeltable steps that offer it.
+     *
+     *   Create -> Crafting
+     *       selects Create-owned crafting methods where present,
+     *       without changing unrelated smelting/crushing steps.
+     */
+    private void synchronizeSelectedProductionProcessMethods() {
+        /*
+         * Production Routes is the authoritative process selector.
+         *
+         * Route and step IDs are intentionally stable across rebuilds.
+         * That means an old selectedMethodIndices entry can otherwise
+         * survive a process change and point at a completely different
+         * method index in the rebuilt route.
+         *
+         * This was especially visible after choosing:
+         *
+         *     Create -> Crafting
+         *
+         * where its non-default method index could remain attached to
+         * the same logical step and make Process Diagram appear stuck
+         * on Create Crafting even after another Production Route was
+         * selected.
+         *
+         * Clear every stale per-step method choice before applying
+         * the current authoritative source/process preference.
+         */
+        selectedMethodIndices.clear();
+
+        if (selectedProductionProcessSourceId == null
+                || selectedProductionProcessSourceId.isBlank()
+                || selectedProductionProcessId == null
+                || productionRoutes.isEmpty()) {
+
+            return;
+        }
+
+        for (CraftScopeProductionRoute route :
+                productionRoutes) {
+
+            for (CraftScopeProductionStep step :
+                    route.steps()) {
+
+                int methodIndex =
+                        findSelectedProductionProcessMethodIndex(
+                                step
+                        );
+
+                if (methodIndex < 0) {
+                    continue;
+                }
+
+                selectedMethodIndices.put(
+                        getMethodSelectionKey(
+                                route,
+                                step
+                        ),
+                        methodIndex
+                );
+            }
+        }
+    }
+
+    private int findSelectedProductionProcessMethodIndex(
+            CraftScopeProductionStep step
+    ) {
+        if (step == null
+                || step.methods().isEmpty()
+                || selectedProductionProcessSourceId == null
+                || selectedProductionProcessId == null) {
+
+            return -1;
+        }
+
+        for (int i = 0;
+             i < step.methods().size();
+             i++) {
+
+            CraftScopeProductionMethod method =
+                    step.methods().get(i);
+
+            if (!selectedProductionProcessId.equals(
+                    method.processId()
+            )) {
+
+                continue;
+            }
+
+            if (getProductionProcessSourceIds(
+                    method
+            ).contains(
+                    selectedProductionProcessSourceId
+            )) {
+
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    /*
+     * Process Diagram is also allowed to change the authoritative
+     * Production Routes context.
+     *
+     * This makes synchronization bidirectional:
+     *
+     *   Production Routes -> diagram method
+     *   diagram method    -> Production Routes
+     */
+    private void selectProductionProcessContextForMethod(
+            CraftScopeProductionRoute route,
+            CraftScopeProductionMethod method
+    ) {
+        if (route == null
+                || method == null
+                || method.processId() == null) {
+
+            return;
+        }
+
+        String sourceId =
+                resolveProductionProcessSourceIdForMethod(
+                        method
+                );
+
+        if (sourceId == null
+                || sourceId.isBlank()) {
+
+            return;
+        }
+
+        int routeIndex =
+                productionRoutes.indexOf(
+                        route
+                );
+
+        if (routeIndex < 0) {
+            routeIndex =
+                    selectedProductionRouteIndex;
+        }
+
+        selectProductionProcessContext(
+                sourceId,
+                method.processId(),
+                routeIndex
+        );
+    }
+
+    private String resolveProductionProcessSourceIdForMethod(
+            CraftScopeProductionMethod method
+    ) {
+        if (method == null) {
+            return null;
+        }
+
+        Set<String> sourceIds =
+                getProductionProcessSourceIds(
+                        method
+                );
+
+        if (sourceIds.isEmpty()) {
+            return null;
+        }
+
+        /*
+         * If the current source is valid for this method, retain it.
+         * This avoids unnecessary source switching on consolidated
+         * methods that can represent more than one recipe owner.
+         */
+        if (selectedProductionProcessSourceId != null
+                && sourceIds.contains(
+                selectedProductionProcessSourceId
+        )) {
+
+            return selectedProductionProcessSourceId;
+        }
+
+        String methodSource =
+                method.sourceModId();
+
+        /*
+         * Explicit non-Minecraft process providers own their process.
+         *
+         * Example:
+         *   Create Bulk Blasting may use minecraft:* recipe data,
+         *   but the process source is still Create.
+         */
+        if (methodSource != null
+                && !methodSource.isBlank()
+                && !"minecraft".equals(
+                methodSource
+        )
+                && sourceIds.contains(
+                methodSource
+        )) {
+
+            return methodSource;
+        }
+
+        /*
+         * Generic Minecraft crafting/smelting machinery is grouped by
+         * recipe namespace when a mod owns the actual recipe.
+         *
+         * Example:
+         *   create:book_from_cardboard -> Create -> Crafting
+         */
+        for (ResourceLocation recipeId :
+                method.recipeIds()) {
+
+            if (recipeId == null) {
+                continue;
+            }
+
+            String recipeSource =
+                    recipeId.getNamespace();
+
+            if (sourceIds.contains(
+                    recipeSource
+            )) {
+
+                return recipeSource;
+            }
+        }
+
+        if (methodSource != null
+                && !methodSource.isBlank()
+                && sourceIds.contains(
+                methodSource
+        )) {
+
+            return methodSource;
+        }
+
+        /*
+         * Final deterministic fallback. Source sets are normally a
+         * single value by this point.
+         */
+        return sourceIds
+                .stream()
+                .sorted()
+                .findFirst()
+                .orElse(
+                        null
+                );
+    }
     private void selectProductionProcessContext(
             String sourceId,
             ResourceLocation processId,
@@ -1815,6 +2076,16 @@ public class CraftScopeProjectScreen
         }
 
         if (processChanged) {
+            selectedDiagramNodeIndex =
+                    -1;
+
+            /*
+             * Drop old per-step method indices before rebuilding.
+             * synchronizeSelectedProductionProcessMethods() will
+             * repopulate them from the new authoritative process.
+             */
+            selectedMethodIndices.clear();
+
             project.setProductionProcessSelection(
                     sourceId,
                     processId.toString()
@@ -1835,6 +2106,21 @@ public class CraftScopeProjectScreen
             rebuildTree();
 
             /*
+             * A direct process-option route can have a stable ID
+             * across rebuilds. Create -> Crafting is one example.
+             *
+             * rebuildProductionRoutes() normally preserves the old
+             * selected route ID, which can leave Process Diagram
+             * permanently attached to that one-step option even
+             * though the authoritative Production Routes context and
+             * Recipe Tree have changed.
+             *
+             * Re-select the freshly rebuilt synchronized production
+             * chain after every process change.
+             */
+            selectSynchronizedProductionDiagramRoute();
+
+            /*
              * Recipe Tree defaults open after a process change so the
              * player can immediately see which branch changed.
              */
@@ -1842,7 +2128,138 @@ public class CraftScopeProjectScreen
             clampTreeScroll();
         }
 
+        synchronizeSelectedProductionProcessMethods();
         clampRecipeProductionRouteScroll();
+    }
+
+    /*
+     * Choose the Process Diagram route that represents the CURRENT
+     * authoritative Production Routes selection.
+     *
+     * ProductionRouteQuery keeps direct process options in the list
+     * for discovery/UI purposes. Their IDs are stable, so preserving
+     * the previous selected route ID across a rebuild is normally
+     * useful -- except when a process choice itself just changed.
+     *
+     * In that case Process Diagram should show the newly rebuilt Full
+     * Production Chain, not remain attached to yesterday's one-step
+     * process option.
+     */
+    private void selectSynchronizedProductionDiagramRoute() {
+        if (productionRoutes == null
+                || productionRoutes.isEmpty()) {
+
+            selectedProductionRouteIndex =
+                    -1;
+
+            selectedDiagramNodeIndex =
+                    -1;
+
+            return;
+        }
+
+        int synchronizedIndex =
+                -1;
+
+        /*
+         * The expanded route is the authoritative visual graph because
+         * CraftScopeProductionRouteExpander rebuilt its actual steps
+         * using the currently selected process preference.
+         */
+        for (int i = 0;
+             i < productionRoutes.size();
+             i++) {
+
+            CraftScopeProductionRoute route =
+                    productionRoutes.get(i);
+
+            if (route == null) {
+                continue;
+            }
+
+            if ("craftscope".equals(
+                    route.sourceModId()
+            )
+                    && route.steps().size() > 1) {
+
+                synchronizedIndex =
+                        i;
+
+                break;
+            }
+        }
+
+        /*
+         * A simple target may not produce a multi-step Full Production
+         * Chain. In that case choose the direct route whose concrete
+         * method matches the selected source/process.
+         */
+        if (synchronizedIndex < 0
+                && selectedProductionProcessSourceId != null
+                && !selectedProductionProcessSourceId.isBlank()
+                && selectedProductionProcessId != null) {
+
+            routeSearch:
+            for (int i = 0;
+                 i < productionRoutes.size();
+                 i++) {
+
+                CraftScopeProductionRoute route =
+                        productionRoutes.get(i);
+
+                if (route == null) {
+                    continue;
+                }
+
+                for (CraftScopeProductionStep step :
+                        route.steps()) {
+
+                    for (CraftScopeProductionMethod method :
+                            step.methods()) {
+
+                        if (!selectedProductionProcessId.equals(
+                                method.processId()
+                        )) {
+
+                            continue;
+                        }
+
+                        if (getProductionProcessSourceIds(
+                                method
+                        ).contains(
+                                selectedProductionProcessSourceId
+                        )) {
+
+                            synchronizedIndex =
+                                    i;
+
+                            break routeSearch;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (synchronizedIndex < 0) {
+            synchronizedIndex =
+                    0;
+        }
+
+        selectedProductionRouteIndex =
+                synchronizedIndex;
+
+        /*
+         * Node indices belong to the previous graph topology.
+         */
+        selectedDiagramNodeIndex =
+                -1;
+
+        /*
+         * Method selections are derived from the authoritative
+         * source/process context. Re-apply them to the route we just
+         * chose when the synchronization helper is available.
+         */
+        synchronizeSelectedProductionProcessMethods();
     }
     private void ensureSelectedProductionRouteSourceExpanded() {
         if (selectedProductionProcessSourceId != null
@@ -5947,7 +6364,20 @@ public class CraftScopeProjectScreen
                     && mouseY >= rowY
                     && mouseY < rowY + rowHeight) {
 
-                selectMethod(route, step, i);
+                CraftScopeProductionMethod method =
+                        step.methods().get(i);
+
+                selectMethod(
+                        route,
+                        step,
+                        i
+                );
+
+                selectProductionProcessContextForMethod(
+                        route,
+                        method
+                );
+
                 return true;
             }
 

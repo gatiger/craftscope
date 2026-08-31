@@ -78,6 +78,32 @@ public final class CraftScopeProductionRouteQuery {
             ItemStack target,
             CraftScopeRecipeTree selectedTree
     ) {
+        return findRoutes(
+                target,
+                selectedTree,
+                null,
+                null
+        );
+    }
+
+    /*
+     * Process-aware UI path.
+     *
+     * Recipe Tree still determines WHICH material recipe is active.
+     * The Production Routes source/process selection determines HOW
+     * compatible production steps should execute.
+     *
+     * The preference is intentionally soft:
+     *
+     * - if a compatible route/method exists, prefer it;
+     * - otherwise retain the normal valid route for that step.
+     */
+    public static List<CraftScopeProductionRoute> findRoutes(
+            ItemStack target,
+            CraftScopeRecipeTree selectedTree,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
+    ) {
         List<CraftScopeProductionRoute> directRoutes =
                 findDirectRoutes(
                         target
@@ -108,10 +134,19 @@ public final class CraftScopeProductionRouteQuery {
                         rootChoice
                 );
 
+        compatibleDirectRoutes =
+                filterForProcessPreference(
+                        compatibleDirectRoutes,
+                        preferredProcessSourceId,
+                        preferredProcessId
+                );
+
         List<CraftScopeProductionRoute> expandedRoutes =
                 CraftScopeProductionRouteExpander.expand(
                         compatibleDirectRoutes,
-                        recipeSelections
+                        recipeSelections,
+                        preferredProcessSourceId,
+                        preferredProcessId
                 );
 
         /*
@@ -1127,6 +1162,56 @@ public final class CraftScopeProductionRouteQuery {
                 : result.toString();
     }
 
+    private static List<CraftScopeProductionRoute>
+    filterForProcessPreference(
+            List<CraftScopeProductionRoute> routes,
+            String preferredProcessSourceId,
+            ResourceLocation preferredProcessId
+    ) {
+        if (routes == null
+                || routes.isEmpty()
+                || preferredProcessSourceId == null
+                || preferredProcessSourceId.isBlank()
+                || preferredProcessId == null) {
+
+            return routes == null
+                    ? List.of()
+                    : routes;
+        }
+
+        List<CraftScopeProductionRoute> matching =
+                new ArrayList<>();
+
+        for (CraftScopeProductionRoute route :
+                routes) {
+
+            if (CraftScopeProductionRouteExpander
+                    .routeMatchesProcessPreference(
+                            route,
+                            preferredProcessSourceId,
+                            preferredProcessId
+                    )) {
+
+                matching.add(
+                        route
+                );
+            }
+        }
+
+        /*
+         * The preference must never make a valid production plan
+         * disappear. If the selected process does not apply at the
+         * target/root, keep all normal root routes and let recursive
+         * expansion apply it deeper in the chain.
+         */
+        if (matching.isEmpty()) {
+            return routes;
+        }
+
+        return List.copyOf(
+                matching
+        );
+    }
     private static List<CraftScopeProductionRoute> filterForRootChoice(
             List<CraftScopeProductionRoute> directRoutes,
             ResourceLocation rootChoice
