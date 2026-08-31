@@ -96,7 +96,6 @@ public class CraftScopeProjectScreen
 
     private double treeScroll;
     private double materialScroll;
-
     private CraftScopeRecipeTree currentTree;
     private CraftScopeMaterialSummary currentMaterialSummary =
             new CraftScopeMaterialSummary(List.of());
@@ -163,10 +162,34 @@ public class CraftScopeProjectScreen
         super(Component.literal(project.getName()));
         this.parent = parent;
         this.project = project;
+
+        /*
+         * A newly opened CraftScope project starts with fresh recipe
+         * discovery caches. They then remain warm across process
+         * selections for this screen instance.
+         */
+        CraftScopeProductionRouteQuery
+                .clearDirectRouteCache();
+
+        io.github.gatiger.craftscope.production
+                .CraftScopeProductionRouteRegistry
+                .clearLookupCache();
+
         loadRecipeOverrides();
         loadProductionProcessSelection();
     }
 
+    @Override
+    public void removed() {
+        super.removed();
+
+        CraftScopeProductionRouteQuery
+                .clearDirectRouteCache();
+
+        io.github.gatiger.craftscope.production
+                .CraftScopeProductionRouteRegistry
+                .clearLookupCache();
+    }
     private void loadRecipeOverrides() {
         recipeOverrides.clear();
 
@@ -517,7 +540,36 @@ public class CraftScopeProjectScreen
     }
 
     private void rebuildTree() {
-        ingredientChoicePopupPath = null;
+        rebuildTree(
+                true
+        );
+    }
+
+    /*
+     * Process-only rebuilds reuse the stable Production Routes catalog.
+     *
+     * Production Routes is intentionally built from a neutral tree
+     * whose available options do not depend on the currently selected
+     * process. Rebuilding that catalog after every process click is
+     * therefore both unnecessary and expensive.
+     */
+    private void rebuildTree(
+            boolean rebuildProcessCatalog
+    ) {
+        /*
+         * One scoped cache is shared by Recipe Tree construction,
+         * material planning, production-route expansion, and the
+         * optional neutral process catalog built during this rebuild.
+         */
+        io.github.gatiger.craftscope.production
+                .CraftScopeProductionRouteRegistry
+                .beginLookupCache();
+
+        CraftScopeProductionRouteQuery
+                .beginDirectRouteCache();
+
+        try {
+            ingredientChoicePopupPath = null;
         ingredientChoicePopupNode = null;
         ingredientChoicePopupAnchorVisible = false;
 
@@ -556,12 +608,24 @@ public class CraftScopeProjectScreen
                 selectedProductionProcessId
         );
 
+        
         currentMaterialSummary =
                 CraftScopeMaterialSummarizer.summarize(currentTree);
 
+        
         rebuildProductionRoutes(target);
+
+        
         populateRecipeChoices();
-        rebuildProductionProcessOptions(target);
+
+        
+
+        if (rebuildProcessCatalog) {
+            rebuildProductionProcessOptions(
+                    target
+            );
+
+            }
 
         /*
          * Recipe Tree opens fully expanded by default.
@@ -576,6 +640,14 @@ public class CraftScopeProjectScreen
 
         clampTreeScroll();
         clampMaterialScroll();
+        } finally {
+            CraftScopeProductionRouteQuery
+                    .endDirectRouteCache();
+
+            io.github.gatiger.craftscope.production
+                    .CraftScopeProductionRouteRegistry
+                    .endLookupCache();
+        }
     }
 
     private void rebuildProductionRoutes(ItemStack target) {
@@ -771,7 +843,7 @@ public class CraftScopeProjectScreen
             int mouseY,
             float partialTick
     ) {
-        int windowLeft = getWindowLeft();
+int windowLeft = getWindowLeft();
         int windowTop = getWindowTop();
         int windowRight = getWindowRight();
         int windowBottom = getWindowBottom();
@@ -833,7 +905,6 @@ public class CraftScopeProjectScreen
 
         super.render(graphics, mouseX, mouseY, partialTick);
     }
-
     private void renderHeader(GuiGraphics graphics) {
         int windowLeft = getWindowLeft();
         int windowTop = getWindowTop();
@@ -1257,12 +1328,50 @@ public class CraftScopeProjectScreen
          * Create supplies an alternate Book recipe without ever
          * showing Book/Cardboard/Leather rows in this panel.
          */
-        collectProductionProcessOptionsForItem(
-                target,
-                options,
-                new HashSet<>(),
-                0
-        );
+        /*
+         * Build a neutral catalog tree so the selector does not change itself.
+         *
+         * The live/current Recipe Tree is process-aware: choosing a
+         * Production Routes entry can legitimately switch a material
+         * branch. If the process menu is then rebuilt from that same
+         * filtered tree, valid options disappear simply because the
+         * player selected another option.
+         *
+         * Example:
+         *
+         *     Minecraft -> Crafting
+         *         Create (5)
+         *
+         *     choose Create -> Crushing
+         *
+         *         Create (3)   <-- unstable / wrong
+         *
+         * Use the same target, saved recipe overrides, and saved
+         * ingredient choices, but intentionally omit the currently
+         * selected process filter for catalog discovery.
+         *
+         * The actual Recipe Tree and Process Diagram remain
+         * process-aware; only the menu's AVAILABLE OPTIONS are neutral.
+         */
+        CraftScopeRecipeTree processCatalogTree =
+                CraftScopeProductionRecipeTreeBuilder.resolveTree(
+                        target,
+                        project.getTargetCount(),
+                        recipeOverrides,
+                        getIngredientVariantOverrides(),
+                        null,
+                        null,
+                        null
+                );
+
+        if (processCatalogTree != null
+                && processCatalogTree.getRoot() != null) {
+
+            collectProductionProcessOptionsForRecipeNode(
+                    processCatalogTree.getRoot(),
+                    options
+            );
+        }
 
         productionProcessOptions =
                 List.copyOf(
@@ -1275,6 +1384,64 @@ public class CraftScopeProjectScreen
         clampRecipeProductionRouteScroll();
     }
 
+    private void collectProductionProcessOptionsForRecipeNode(
+            CraftScopeRecipeNode node,
+            Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
+                    options
+    ) {
+        if (node == null
+                || options == null) {
+
+            return;
+        }
+
+        ItemStack stack =
+                node.getStack();
+
+        if (stack != null
+                && !stack.isEmpty()) {
+
+            /*
+             * The ACTIVE Recipe Tree decides which ITEMS are relevant,
+             * but it must not collapse those items to only the recipe
+             * that is selected right now.
+             *
+             * For every item that actually participates in the active
+             * plan, expose every valid direct production alternative:
+             *
+             *     Minecraft Crafting
+             *     Create Crafting
+             *     Create Milling
+             *     Create Crushing
+             *     etc.
+             *
+             * What we intentionally do NOT do anymore is recursively
+             * follow the ingredients of every unused alternate route.
+             * That was the source of unrelated processes appearing in
+             * Production Routes.
+             */
+            for (CraftScopeProductionRoute route :
+                    CraftScopeProductionRouteQuery.findDirectRoutes(
+                            stack
+                    )) {
+
+                collectProductionProcessOptionsFromRoute(
+                        route,
+                        -1,
+                        options
+                );
+            }
+        }
+
+        for (CraftScopeRecipeNode child :
+                node.getChildren()) {
+
+            collectProductionProcessOptionsForRecipeNode(
+                    child,
+                    options
+            );
+        }
+    }
     private void collectProductionProcessOptionsForItem(
             ItemStack stack,
             Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
@@ -2090,10 +2257,8 @@ public class CraftScopeProjectScreen
                     sourceId,
                     processId.toString()
             );
-
             CraftScopeProjectManager.save();
-
-            /*
+/*
              * Recipe choices are derived from the filtered candidates
              * generated by CraftScopeProductionRecipeTreeBuilder.
              *
@@ -2103,9 +2268,18 @@ public class CraftScopeProjectScreen
              */
             recipeChoices.clear();
 
-            rebuildTree();
-
             /*
+             * Rebuild the process-aware working plan, but keep the
+             * already-computed neutral Production Routes catalog.
+             *
+             * This avoids rescanning the complete reachable recipe
+             * graph on every process click and prevents the visible
+             * full-window flash caused by a long synchronous rebuild.
+             */
+            rebuildTree(
+                    false
+            );
+/*
              * A direct process-option route can have a stable ID
              * across rebuilds. Create -> Crafting is one example.
              *
@@ -3011,6 +3185,7 @@ public class CraftScopeProjectScreen
     private void renderProcessDiagram(
             GuiGraphics graphics
     ) {
+
         ProcessLayout layout =
                 getProcessLayout();
 
@@ -3158,6 +3333,8 @@ public class CraftScopeProjectScreen
                 layout.summaryHeight(),
                 true
         );
+
+
     }
 
     private ProcessLayout getProcessLayout() {
@@ -3430,6 +3607,7 @@ public class CraftScopeProjectScreen
         CraftScopeProductionRoute displayRoute =
                 getDisplayProductionRoute(route);
 
+
         CraftScopeProcessDiagramRenderer.render(
                 graphics,
                 font,
@@ -3441,6 +3619,8 @@ public class CraftScopeProjectScreen
                 project.getTargetCount(),
                 selectedDiagramNodeIndex
         );
+
+
 
         CraftScopeProcessDiagramRenderer.Selection selection =
                 CraftScopeProcessDiagramRenderer.getSelection(
@@ -4485,7 +4665,7 @@ public class CraftScopeProjectScreen
                 methodsLeft,
                 panelsTop,
                 methodsRight,
-                "Selected Methods"
+                "Processes Used"
         );
 
         renderSetupMachines(
@@ -4757,17 +4937,65 @@ public class CraftScopeProjectScreen
                     left,
                     right,
                     top,
-                    "No production steps"
+                    "No production processes"
             );
 
             return;
         }
 
+        /*
+         * Setup is a preparation summary, not a second copy of the
+         * Process Diagram. Collapse identical methods into one row.
+         *
+         * Example:
+         *
+         *     Crafting x8
+         *     Farming Sugar Cane x2
+         *     Storage Conversion
+         *
+         * Individual step-by-step detail remains available in
+         * Process Diagram / Full Production.
+         */
+        Map<String, Integer> processCounts =
+                new LinkedHashMap<>();
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            CraftScopeProductionMethod method =
+                    step.getPrimaryMethod();
+
+            String processName =
+                    method == null
+                            ? "No method"
+                            : method
+                            .displayName()
+                            .getString();
+
+            if (processName == null
+                    || processName.isBlank()) {
+
+                processName =
+                        "Unnamed process";
+            }
+
+            processCounts.merge(
+                    processName,
+                    1,
+                    Integer::sum
+            );
+        }
+
+        List<Map.Entry<String, Integer>> processes =
+                new ArrayList<>(
+                        processCounts.entrySet()
+                );
+
         int rowTop =
                 top + 28;
 
         int rowHeight =
-                28;
+                20;
 
         int maxRows =
                 Math.max(
@@ -4778,7 +5006,7 @@ public class CraftScopeProjectScreen
 
         int visible =
                 Math.min(
-                        route.steps().size(),
+                        processes.size(),
                         maxRows
                 );
 
@@ -4786,11 +5014,18 @@ public class CraftScopeProjectScreen
              i < visible;
              i++) {
 
-            CraftScopeProductionStep step =
-                    route.steps().get(i);
+            Map.Entry<String, Integer> entry =
+                    processes.get(i);
 
-            CraftScopeProductionMethod method =
-                    step.getPrimaryMethod();
+            int count =
+                    entry.getValue();
+
+            String label =
+                    count > 1
+                            ? entry.getKey()
+                            + " x"
+                            + count
+                            : entry.getKey();
 
             int y =
                     rowTop
@@ -4799,45 +5034,23 @@ public class CraftScopeProjectScreen
             graphics.drawString(
                     font,
                     fitText(
-                            step.displayName()
-                                    .getString(),
+                            label,
                             right - left - 18
                     ),
                     left + 9,
-                    y,
-                    CraftScopeUiTheme.TEXT_MUTED
-            );
-
-            String methodName =
-                    method == null
-                            ? "No method"
-                            : method
-                            .displayName()
-                            .getString();
-
-            graphics.drawString(
-                    font,
-                    fitText(
-                            methodName,
-                            right - left - 18
-                    ),
-                    left + 9,
-                    y + 13,
-                    method == null
-                            ? CraftScopeUiTheme.TEXT_MUTED
-                            : CraftScopeUiTheme.TEXT_PRIMARY
+                    y + 4,
+                    CraftScopeUiTheme.TEXT_PRIMARY
             );
         }
 
         renderSetupMoreCount(
                 graphics,
-                route.steps().size(),
+                processes.size(),
                 visible,
                 right,
                 bottom
         );
     }
-
     private List<CraftScopeProcessRequirement>
     getSetupOperatingRequirements(
             CraftScopeProductionRoute route

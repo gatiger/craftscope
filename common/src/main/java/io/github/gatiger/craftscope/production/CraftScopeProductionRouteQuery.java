@@ -54,7 +54,70 @@ import java.util.Set;
  */
 public final class CraftScopeProductionRouteQuery {
 
+    /*
+     * Normalized direct routes are requested repeatedly while one
+     * production plan is being built.
+     *
+     * The registry-level cache prevents expensive provider rescans,
+     * but normalization itself still merges/sorts the same raw routes
+     * many times during recursive expansion.
+     *
+     * Cache those normalized direct routes for one rebuild only.
+     */
+    private static final ThreadLocal<DirectRouteCacheState>
+            DIRECT_ROUTE_CACHE =
+            new ThreadLocal<>();
+
     private CraftScopeProductionRouteQuery() {
+    }
+
+    public static void beginDirectRouteCache() {
+        DirectRouteCacheState state =
+                DIRECT_ROUTE_CACHE.get();
+
+        if (state == null) {
+            state =
+                    new DirectRouteCacheState();
+
+            DIRECT_ROUTE_CACHE.set(
+                    state
+            );
+        }
+
+        state.depth++;
+    }
+
+    public static void endDirectRouteCache() {
+        DirectRouteCacheState state =
+                DIRECT_ROUTE_CACHE.get();
+
+        if (state == null) {
+            return;
+        }
+
+        state.depth =
+                Math.max(
+                        0,
+                        state.depth - 1
+                );
+
+        /*
+         * Keep normalized routes warm between process clicks.
+         *
+         * The cache remains dormant while depth == 0 and is explicitly
+         * cleared when the CraftScope project screen opens/closes.
+         */
+    }
+
+    public static void clearDirectRouteCache() {
+        DirectRouteCacheState state =
+                DIRECT_ROUTE_CACHE.get();
+
+        if (state != null) {
+            state.routes.clear();
+        }
+
+        DIRECT_ROUTE_CACHE.remove();
     }
 
     public static List<CraftScopeProductionRoute> findRoutes(
@@ -263,6 +326,36 @@ public final class CraftScopeProductionRouteQuery {
     public static List<CraftScopeProductionRoute> findDirectRoutes(
             ItemStack target
     ) {
+        if (target == null
+                || target.isEmpty()) {
+
+            return List.of();
+        }
+
+        DirectRouteCacheState cacheState =
+                DIRECT_ROUTE_CACHE.get();
+
+        CraftScopeItemIdentity cacheKey =
+                null;
+
+        if (cacheState != null
+                && cacheState.depth > 0) {
+
+            cacheKey =
+                    CraftScopeItemIdentity.fromStack(
+                            target
+                    );
+
+            List<CraftScopeProductionRoute> cached =
+                    cacheState.routes.get(
+                            cacheKey
+                    );
+
+            if (cached != null) {
+                return cached;
+            }
+        }
+
         List<CraftScopeProductionRoute> rawRoutes =
                 CraftScopeProductionRouteRegistry.findRoutes(
                         target
@@ -279,9 +372,22 @@ public final class CraftScopeProductionRouteQuery {
                 normalized
         );
 
-        return List.copyOf(
-                normalized
-        );
+        List<CraftScopeProductionRoute> result =
+                List.copyOf(
+                        normalized
+                );
+
+        if (cacheState != null
+                && cacheState.depth > 0
+                && cacheKey != null) {
+
+            cacheState.routes.put(
+                    cacheKey,
+                    result
+            );
+        }
+
+        return result;
     }
 
     /*
@@ -1418,5 +1524,15 @@ public final class CraftScopeProductionRouteQuery {
                                                 .toString()
                         )
         );
+    }
+    private static final class DirectRouteCacheState {
+
+        private int depth;
+
+        private final Map<
+                CraftScopeItemIdentity,
+                List<CraftScopeProductionRoute>>
+                routes =
+                new LinkedHashMap<>();
     }
 }

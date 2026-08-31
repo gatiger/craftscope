@@ -276,6 +276,21 @@ public final class CraftScopeProcessDiagramRenderer {
         }
 
         /*
+         * Clip the graph body to the panel passed by the caller.
+         *
+         * Adaptive scaling is intentionally readability-limited, so a
+         * tall branching graph can still be physically larger than the
+         * embedded Project-screen viewport. Never allow those nodes or
+         * connector lines to paint over the summary panels below.
+         */
+        graphics.enableScissor(
+                left,
+                top + ROUTE_TITLE_HEIGHT,
+                right,
+                bottom
+        );
+
+        /*
          * Connections first so nodes remain above them.
          *
          * Connections are explicit rather than inferred from list
@@ -363,6 +378,8 @@ public final class CraftScopeProcessDiagramRenderer {
                     selectedNodeIndex == i
             );
         }
+
+        graphics.disableScissor();
 
         if (scaled) {
             graphics.pose()

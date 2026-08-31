@@ -28,7 +28,6 @@
     "MixinCraftScopeYieldNormalization",
     "MixinCraftScopeVariableYieldDiagramUi",
     "MixinCraftScopeDiagramExpectedRuns",
-    "MixinCraftScopeProcessRouteSelectionSync",
     "ScreenAccessor",
     "ScreenChildrenAccessor",
     "AbstractContainerScreenAccessor"

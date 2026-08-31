@@ -6,7 +6,9 @@ import net.minecraft.world.item.ItemStack;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /*
  * Central registry for all production-route providers.
@@ -23,6 +25,25 @@ public final class CraftScopeProductionRouteRegistry {
     private static final List<CraftScopeProductionRouteProvider>
             PROVIDERS =
             new ArrayList<>();
+
+    /*
+     * Route discovery can be expensive when optional integrations
+     * inspect large recipe collections (Create in particular).
+     *
+     * A CraftScope screen rebuild asks for many of the same item routes
+     * several times while building:
+     *
+     *     Recipe Tree
+     *     Process Diagram
+     *     Setup
+     *
+     * Keep one component-aware cache only while that rebuild is active.
+     * It is removed completely afterward, so recipe/datapack reloads
+     * cannot leave stale production data behind.
+     */
+    private static final ThreadLocal<LookupCacheState>
+            LOOKUP_CACHE =
+            new ThreadLocal<>();
 
     static {
         /*
@@ -55,6 +76,55 @@ public final class CraftScopeProductionRouteRegistry {
     private CraftScopeProductionRouteRegistry() {
     }
 
+    public static void beginLookupCache() {
+        LookupCacheState state =
+                LOOKUP_CACHE.get();
+
+        if (state == null) {
+            state =
+                    new LookupCacheState();
+
+            LOOKUP_CACHE.set(
+                    state
+            );
+        }
+
+        state.depth++;
+    }
+
+    public static void endLookupCache() {
+        LookupCacheState state =
+                LOOKUP_CACHE.get();
+
+        if (state == null) {
+            return;
+        }
+
+        state.depth =
+                Math.max(
+                        0,
+                        state.depth - 1
+                );
+
+        /*
+         * Keep discovered provider routes warm between rebuilds.
+         *
+         * depth still controls whether callers are ALLOWED to use the
+         * cache. At depth 0 the cache is dormant, but its contents stay
+         * available for the next CraftScope rebuild on this screen.
+         */
+    }
+
+    public static void clearLookupCache() {
+        LookupCacheState state =
+                LOOKUP_CACHE.get();
+
+        if (state != null) {
+            state.routes.clear();
+        }
+
+        LOOKUP_CACHE.remove();
+    }
     public static void register(
             CraftScopeProductionRouteProvider provider
     ) {
@@ -116,6 +186,30 @@ public final class CraftScopeProductionRouteRegistry {
             return List.of();
         }
 
+        LookupCacheState cacheState =
+                LOOKUP_CACHE.get();
+
+        CraftScopeItemIdentity cacheKey =
+                null;
+
+        if (cacheState != null
+                && cacheState.depth > 0) {
+
+            cacheKey =
+                    CraftScopeItemIdentity.fromStack(
+                            target
+                    );
+
+            List<CraftScopeProductionRoute> cached =
+                    cacheState.routes.get(
+                            cacheKey
+                    );
+
+            if (cached != null) {
+                return cached;
+            }
+        }
+
         List<CraftScopeProductionRoute> routes =
                 new ArrayList<>();
 
@@ -168,6 +262,32 @@ public final class CraftScopeProductionRouteRegistry {
                         )
         );
 
-        return List.copyOf(routes);
+        List<CraftScopeProductionRoute> result =
+                List.copyOf(
+                        routes
+                );
+
+        if (cacheState != null
+                && cacheState.depth > 0
+                && cacheKey != null) {
+
+            cacheState.routes.put(
+                    cacheKey,
+                    result
+            );
+        }
+
+        return result;
+    }
+
+    private static final class LookupCacheState {
+
+        private int depth;
+
+        private final Map<
+                CraftScopeItemIdentity,
+                List<CraftScopeProductionRoute>>
+                routes =
+                new LinkedHashMap<>();
     }
 }

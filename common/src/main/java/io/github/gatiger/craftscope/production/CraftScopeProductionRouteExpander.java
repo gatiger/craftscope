@@ -789,14 +789,14 @@ public final class CraftScopeProductionRouteExpander {
                 continue;
             }
 
-            List<CraftScopeProductionRoute> raw =
-                    CraftScopeProductionRouteRegistry.findRoutes(
-                            stack
-                    );
-
+            /*
+             * Reuse the rebuild-scoped normalized direct-route cache.
+             * This avoids normalizing the same provider data over and
+             * over as recursive branches revisit common items.
+             */
             List<CraftScopeProductionRoute> normalized =
-                    CraftScopeProductionRouteNormalizer.normalize(
-                            raw
+                    CraftScopeProductionRouteQuery.findDirectRoutes(
+                            stack
                     );
 
             for (CraftScopeProductionRoute candidate :

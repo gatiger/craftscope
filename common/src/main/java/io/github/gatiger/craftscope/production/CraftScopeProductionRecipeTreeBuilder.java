@@ -598,6 +598,36 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             );
         }
 
+        /*
+         * Keep a higher-priority acquisition route as the normal default.
+         *
+         * The Production Routes process selection is a preference for
+         * HOW craftable/processable materials are made. It must not make
+         * a lower-priority conversion route become the default source of
+         * a naturally acquired material.
+         *
+         * Example:
+         *
+         *     Leather
+         *         Kill Cow          priority ~3540
+         *         4 Rabbit Hide -> Leather (Crafting) priority ~1000
+         *
+         * Selecting Crafting globally should not silently replace
+         * Kill Cow with Rabbit Hide. The player may still explicitly
+         * choose the Rabbit Hide recipe from Recipe Tree.
+         */
+        CraftScopeProductionRoute normalDefault =
+                candidates.getFirst();
+
+        if (isDefaultAcquisitionRoute(
+                normalDefault
+        )) {
+
+            return List.copyOf(
+                    candidates
+            );
+        }
+
         List<CraftScopeProductionRoute> matching =
                 new ArrayList<>();
 
@@ -634,6 +664,52 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         );
     }
 
+    private static boolean isDefaultAcquisitionRoute(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null
+                || route.steps().isEmpty()) {
+
+            return false;
+        }
+
+        ResourceLocation routeId =
+                route.id();
+
+        if (routeId != null
+                && "craftscope".equals(
+                routeId.getNamespace()
+        )
+                && routeId
+                .getPath()
+                .startsWith(
+                        "acquisition/"
+                )) {
+
+            return true;
+        }
+
+        /*
+         * Mob drops and other acquisition routes normally have no
+         * consumed production input. Requirements such as a mob,
+         * biome, tool, or environment live on the method instead.
+         */
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeResourceAmount input :
+                    step.inputs()) {
+
+                if (input != null
+                        && input.consumed()) {
+
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
     private static boolean routeMatchesProductionProcess(
             CraftScopeProductionRoute route,
             String preferredProcessSourceId,

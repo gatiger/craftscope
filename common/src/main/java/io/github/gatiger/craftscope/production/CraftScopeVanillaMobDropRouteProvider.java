@@ -76,8 +76,26 @@ public final class CraftScopeVanillaMobDropRouteProvider
                     routes
             );
 
-            if (hasTransformation(
-                    definition
+            /*
+             * A transformed outcome is a distinct acquisition choice
+             * only when the TARGET item itself changes.
+             *
+             * Example:
+             *     Raw Beef -> Cooked Beef
+             *         transformed route is meaningful for Cooked Beef.
+             *
+             * Counter-example:
+             *     Rabbit Hide + Raw Rabbit
+             *         versus
+             *     Rabbit Hide + Cooked Rabbit
+             *
+             * Rabbit Hide itself did not change, so presenting two
+             * visually identical "Kill Rabbit" choices for Rabbit Hide
+             * only adds noise to Recipe Tree.
+             */
+            if (hasTargetSpecificTransformation(
+                    definition,
+                    target
             )) {
 
                 addRouteIfMatching(
@@ -1193,6 +1211,71 @@ public final class CraftScopeVanillaMobDropRouteProvider
         );
     }
 
+    private static boolean hasTargetSpecificTransformation(
+            CraftScopeMobDropCatalog.MobDefinition definition,
+            ItemStack target
+    ) {
+        if (definition == null
+                || target == null
+                || target.isEmpty()) {
+
+            return false;
+        }
+
+        for (CraftScopeMobDropCatalog.DropDefinition drop :
+                findTargetDrops(
+                        definition,
+                        target,
+                        OutcomeVariant.TRANSFORMED
+                )) {
+
+            ResourceLocation baseId =
+                    getEffectiveItemId(
+                            drop,
+                            OutcomeVariant.BASE
+                    );
+
+            ResourceLocation transformedId =
+                    getEffectiveItemId(
+                            drop,
+                            OutcomeVariant.TRANSFORMED
+                    );
+
+            CraftScopeItemIdentity baseIdentity =
+                    getEffectiveItemIdentity(
+                            drop,
+                            OutcomeVariant.BASE
+                    );
+
+            CraftScopeItemIdentity transformedIdentity =
+                    getEffectiveItemIdentity(
+                            drop,
+                            OutcomeVariant.TRANSFORMED
+                    );
+
+            boolean itemChanged =
+                    baseId == null
+                            ? transformedId != null
+                            : !baseId.equals(
+                            transformedId
+                    );
+
+            boolean identityChanged =
+                    baseIdentity == null
+                            ? transformedIdentity != null
+                            : !baseIdentity.equals(
+                            transformedIdentity
+                    );
+
+            if (itemChanged
+                    || identityChanged) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
     private static boolean hasTransformation(
             CraftScopeMobDropCatalog.MobDefinition definition
     ) {
