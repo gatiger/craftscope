@@ -827,6 +827,12 @@ public abstract class MixinCraftScopeMaterialTracking {
         List<ItemStack> variants =
                 row.acceptedVariants();
 
+        if (row.selectableIngredientAlternatives()
+                && row.explicitIngredientVariantSelection()) {
+
+            return row.stack();
+        }
+
         if (!variants.isEmpty()) {
             /*
              * Rotate through every accepted option instead of
@@ -864,6 +870,20 @@ public abstract class MixinCraftScopeMaterialTracking {
 
         ItemStack fallback =
                 row.stack();
+
+        if (row.selectableIngredientAlternatives()) {
+
+            if (row.explicitIngredientVariantSelection()) {
+
+                return fallback
+                        .getHoverName()
+                        .getString();
+            }
+
+            return craftscope$getAlternativeSummary(
+                    variants
+            );
+        }
 
         if (variants.size() <= 1) {
             return fallback
@@ -932,6 +952,41 @@ public abstract class MixinCraftScopeMaterialTracking {
                 .getString();
     }
 
+    @Unique
+    private static String craftscope$getAlternativeSummary(
+            List<ItemStack> variants
+    ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+            return "Choose Ingredient";
+        }
+
+        if (variants.size() == 1) {
+
+            return variants
+                    .getFirst()
+                    .getHoverName()
+                    .getString();
+        }
+
+        if (variants.size() == 2) {
+
+            return variants
+                    .get(0)
+                    .getHoverName()
+                    .getString()
+                    + " OR "
+                    + variants
+                    .get(1)
+                    .getHoverName()
+                    .getString();
+        }
+
+        return "Choose Ingredient ("
+                + variants.size()
+                + " options)";
+    }
     @Unique
     private static String craftscope$findCommonSuffix(
             List<ItemStack> variants

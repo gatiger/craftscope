@@ -22,6 +22,7 @@ import io.github.gatiger.craftscope.recipe.CraftScopeProductionRecipeTreeBuilder
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
 import io.github.gatiger.craftscope.ui.CraftScopeBaseScreen;
 import io.github.gatiger.craftscope.ui.CraftScopeFlatButton;
+import io.github.gatiger.craftscope.ui.CraftScopeProductionRouteTreeModel;
 import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import io.github.gatiger.craftscope.ui.diagram.CraftScopeProcessDiagramRenderer;
 import net.minecraft.client.gui.GuiGraphics;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -102,6 +104,57 @@ public class CraftScopeProjectScreen
     private List<CraftScopeProductionRoute> productionRoutes = List.of();
     private int selectedProductionRouteIndex = -1;
     private int selectedDiagramNodeIndex = -1;
+
+    /*
+     * Shared between Recipe Tree and Process Diagram.
+     *
+     * Source groups start collapsed except for the group containing
+     * the current selected route.
+     */
+    private final Set<String> expandedProductionRouteSources =
+            new HashSet<>();
+
+    /*
+     * Recipe Tree has a full-height route panel, so it owns a small
+     * independent scroll value. Process Diagram keeps using the
+     * existing overflow mixin scroll state.
+     */
+    private double recipeProductionRouteScroll;
+    private int recipeProductionRouteMaxScroll;
+
+    /*
+     * Deduplicated process catalog for the entire reachable
+     * production plan.
+     */
+    private List<CraftScopeProductionRouteTreeModel.ProcessOption>
+            productionProcessOptions =
+            List.of();
+
+    /*
+     * Shared process selection context for Recipe Tree and Process
+     * Diagram. A later pass uses this exact context to filter recipe
+     * alternatives.
+     */
+    private String selectedProductionProcessSourceId;
+    private ResourceLocation selectedProductionProcessId;
+
+    /*
+     * Recipe Tree ingredient-alternative popup.
+     *
+     * The choice list is an overlay: all alternatives are visible
+     * while choosing, then it collapses after selection so only the
+     * active material remains in the production plan.
+     */
+    private String ingredientChoicePopupPath;
+    private CraftScopeRecipeNode ingredientChoicePopupNode;
+    private boolean ingredientChoicePopupAnchorVisible;
+    private int ingredientChoicePopupAnchorX;
+    private int ingredientChoicePopupAnchorY;
+    private int ingredientChoicePopupLeft;
+    private int ingredientChoicePopupTop;
+    private int ingredientChoicePopupRight;
+    private int ingredientChoicePopupBottom;
+    private int ingredientChoicePopupRowHeight = 22;
 
     public CraftScopeProjectScreen(
             Screen parent,
@@ -394,6 +447,10 @@ public class CraftScopeProjectScreen
     }
 
     private void rebuildTree() {
+        ingredientChoicePopupPath = null;
+        ingredientChoicePopupNode = null;
+        ingredientChoicePopupAnchorVisible = false;
+
         ItemStack target = getTargetStack();
 
         if (target.isEmpty()) {
@@ -402,8 +459,11 @@ public class CraftScopeProjectScreen
                     new CraftScopeMaterialSummary(List.of());
 
             productionRoutes = List.of();
+            productionProcessOptions = List.of();
             selectedProductionRouteIndex = -1;
             selectedDiagramNodeIndex = -1;
+            selectedProductionProcessSourceId = null;
+            selectedProductionProcessId = null;
 
             treeScroll = 0;
             materialScroll = 0;
@@ -427,6 +487,18 @@ public class CraftScopeProjectScreen
 
         rebuildProductionRoutes(target);
         populateRecipeChoices();
+        rebuildProductionProcessOptions(target);
+
+        /*
+         * Recipe Tree opens fully expanded by default.
+         *
+         * Once the player starts collapsing nodes, ordinary rebuilds
+         * preserve that session state rather than forcing everything
+         * open again.
+         */
+        if (expandedNodes.isEmpty()) {
+            expandAllRecipeNodes();
+        }
 
         clampTreeScroll();
         clampMaterialScroll();
@@ -496,6 +568,9 @@ public class CraftScopeProjectScreen
         }
 
         selectedDiagramNodeIndex = -1;
+
+        ensureSelectedProductionRouteSourceExpanded();
+        clampRecipeProductionRouteScroll();
     }
 
     private void populateRecipeChoices() {
@@ -880,6 +955,9 @@ public class CraftScopeProjectScreen
             int mouseX,
             int mouseY
     ) {
+        ingredientChoicePopupAnchorVisible = false;
+        ingredientChoicePopupNode = null;
+
         int routesLeft =
                 getContentLeft();
 
@@ -1035,8 +1113,735 @@ public class CraftScopeProjectScreen
                 contentHeight,
                 treeScroll
         );
+
+        renderIngredientChoicePopup(
+                graphics,
+                mouseX,
+                mouseY
+        );
     }
 
+    private List<CraftScopeProductionRouteTreeModel.Row>
+    getProductionRouteTreeRows() {
+
+        return CraftScopeProductionRouteTreeModel.buildRows(
+                productionProcessOptions,
+                expandedProductionRouteSources,
+                selectedProductionProcessSourceId,
+                selectedProductionProcessId
+        );
+    }
+
+    private void rebuildProductionProcessOptions(
+            ItemStack target
+    ) {
+        if (target == null
+                || target.isEmpty()) {
+
+            productionProcessOptions =
+                    List.of();
+
+            selectedProductionProcessSourceId =
+                    null;
+
+            selectedProductionProcessId =
+                    null;
+
+            return;
+        }
+
+        Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
+                options =
+                new LinkedHashMap<>();
+
+        /*
+         * First add the concrete target-level UI routes so matching
+         * process rows retain a routeIndex and can still drive the
+         * existing Process Diagram route selection.
+         */
+        for (int routeIndex = 0;
+             routeIndex < productionRoutes.size();
+             routeIndex++) {
+
+            collectProductionProcessOptionsFromRoute(
+                    productionRoutes.get(
+                            routeIndex
+                    ),
+                    routeIndex,
+                    options
+            );
+        }
+
+        /*
+         * Then recursively inspect every reachable material route,
+         * including alternate recipes, but store only unique
+         * source+process pairs.
+         *
+         * This is why a Lectern can expose Create -> Crafting when
+         * Create supplies an alternate Book recipe without ever
+         * showing Book/Cardboard/Leather rows in this panel.
+         */
+        collectProductionProcessOptionsForItem(
+                target,
+                options,
+                new HashSet<>(),
+                0
+        );
+
+        productionProcessOptions =
+                List.copyOf(
+                        options.values()
+                );
+
+        preserveOrChooseProductionProcessSelection();
+        ensureSelectedProductionRouteSourceExpanded();
+        clampRecipeProductionRouteScroll();
+    }
+
+    private void collectProductionProcessOptionsForItem(
+            ItemStack stack,
+            Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
+                    options,
+            Set<String> visitedItems,
+            int depth
+    ) {
+        if (stack == null
+                || stack.isEmpty()
+                || options == null
+                || visitedItems == null
+                || depth >= 8) {
+
+            return;
+        }
+
+        String itemId =
+                getItemId(
+                        stack
+                );
+
+        if (!visitedItems.add(
+                itemId
+        )) {
+
+            return;
+        }
+
+        List<CraftScopeProductionRoute> routes =
+                CraftScopeProductionRouteQuery.findDirectRoutes(
+                        stack
+                );
+
+        for (CraftScopeProductionRoute route :
+                routes) {
+
+            collectProductionProcessOptionsFromRoute(
+                    route,
+                    -1,
+                    options
+            );
+
+            for (CraftScopeProductionStep step :
+                    route.steps()) {
+
+                for (CraftScopeResourceAmount input :
+                        step.inputs()) {
+
+                    if (input.kind()
+                            != CraftScopeResourceKind.ITEM
+                            || !input.consumed()) {
+
+                        continue;
+                    }
+
+                    int variantCount =
+                            0;
+
+                    for (ResourceLocation inputId :
+                            input.acceptedVariantIds()) {
+
+                        if (inputId == null) {
+                            continue;
+                        }
+
+                        Item inputItem =
+                                BuiltInRegistries.ITEM.get(
+                                        inputId
+                                );
+
+                        if (inputItem == null) {
+                            continue;
+                        }
+
+                        ItemStack inputStack =
+                                new ItemStack(
+                                        inputItem
+                                );
+
+                        if (!inputStack.isEmpty()) {
+                            collectProductionProcessOptionsForItem(
+                                    inputStack,
+                                    options,
+                                    visitedItems,
+                                    depth + 1
+                            );
+                        }
+
+                        /*
+                         * Broad tags such as logs can contain many
+                         * equivalent variants. We only need enough
+                         * representatives to discover process types.
+                         */
+                        variantCount++;
+
+                        if (variantCount >= 8) {
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private void collectProductionProcessOptionsFromRoute(
+            CraftScopeProductionRoute route,
+            int routeIndex,
+            Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
+                    options
+    ) {
+        if (route == null
+                || options == null) {
+
+            return;
+        }
+
+        /*
+         * Full Production Chain is a CraftScope UI route rather than
+         * one ordinary machine/process method. Keep it as its own
+         * compact process choice.
+         */
+        if ("craftscope".equals(
+                route.sourceModId()
+        )) {
+
+            ResourceLocation processId =
+                    ResourceLocation.tryParse(
+                            "craftscope:full_production_chain"
+                    );
+
+            if (processId != null) {
+                putProductionProcessOption(
+                        options,
+                        new CraftScopeProductionRouteTreeModel.ProcessOption(
+                                "craftscope",
+                                "CraftScope",
+                                processId,
+                                route
+                                        .displayName()
+                                        .getString(),
+                                routeIndex
+                        )
+                );
+            }
+
+            return;
+        }
+
+        /*
+         * Production Routes is intentionally a PROCESS selector,
+         * not an acquisition-method selector.
+         *
+         * Keep:
+         *   Crafting
+         *   Smelting / Blasting
+         *   Create Crushing / Milling / Mixing / Washing / etc.
+         *
+         * Exclude:
+         *   Kill Cow / Kill Hoglin / ...
+         *   Farming Bamboo / Farming Sugar Cane / ...
+         *   Mining / Digging / Breaking
+         *   other world-acquisition routes
+         *
+         * Those acquisition methods remain fully available in Recipe
+         * Tree and the complete production plan.
+         */
+        if (!isProductionProcessCatalogRoute(
+                route
+        )) {
+
+            return;
+        }
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeProductionMethod method :
+                    step.methods()) {
+
+                Set<String> sourceIds =
+                        getProductionProcessSourceIds(
+                                method
+                        );
+
+                for (String sourceId :
+                        sourceIds) {
+
+                    String sourceName =
+                            resolveProductionProcessSourceName(
+                                    route,
+                                    sourceId
+                            );
+
+                    putProductionProcessOption(
+                            options,
+                            new CraftScopeProductionRouteTreeModel.ProcessOption(
+                                    sourceId,
+                                    sourceName,
+                                    method.processId(),
+                                    method
+                                            .displayName()
+                                            .getString(),
+                                    routeIndex
+                            )
+                    );
+                }
+            }
+        }
+    }
+
+    private boolean isProductionProcessCatalogRoute(
+            CraftScopeProductionRoute route
+    ) {
+        if (route == null
+                || route.steps().isEmpty()) {
+
+            return false;
+        }
+
+        /*
+         * CraftScope acquisition providers use acquisition/* route
+         * IDs for mining, digging, breaking, farming, and similar
+         * world-gathering operations.
+         *
+         * These remain valid in Recipe Tree/full planning but do not
+         * belong in the Production Routes process selector.
+         */
+        ResourceLocation routeId =
+                route.id();
+
+        if (routeId != null
+                && "craftscope".equals(
+                routeId.getNamespace()
+        )
+                && routeId
+                .getPath()
+                .startsWith(
+                        "acquisition/"
+                )) {
+
+            return false;
+        }
+
+        /*
+         * Mob drops, loot, passive gathering, and other pure
+         * acquisition routes have outputs without a consumed process
+         * input. Do not list them as processing methods.
+         *
+         * Real transformationsâ€”crafting, smelting, blasting, Create
+         * processing, future fluid/chemical transformations, etc.â€”
+         * consume at least one input resource.
+         */
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            for (CraftScopeResourceAmount input :
+                    step.inputs()) {
+
+                if (input != null
+                        && input.consumed()) {
+
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+    private Set<String> getProductionProcessSourceIds(
+            CraftScopeProductionMethod method
+    ) {
+        if (method == null) {
+            return Set.of();
+        }
+
+        Set<String> result =
+                new LinkedHashSet<>();
+
+        String methodSource =
+                method.sourceModId();
+
+        /*
+         * A genuinely modded processing method belongs to that mod
+         * even if it reuses a minecraft:* recipe definition.
+         *
+         * Example:
+         *     Create Bulk Blasting -> Create
+         */
+        if (methodSource != null
+                && !methodSource.isBlank()
+                && !"minecraft".equals(
+                methodSource
+        )) {
+
+            result.add(
+                    methodSource
+            );
+
+            return Set.copyOf(
+                    result
+            );
+        }
+
+        /*
+         * Generic Minecraft crafting/smelting can execute recipes
+         * owned by another mod. In that case the recipe namespace is
+         * the useful source group.
+         *
+         * Example:
+         *     create:book_from_cardboard -> Create -> Crafting
+         */
+        for (ResourceLocation recipeId :
+                method.recipeIds()) {
+
+            if (recipeId != null
+                    && recipeId.getNamespace() != null
+                    && !recipeId
+                    .getNamespace()
+                    .isBlank()) {
+
+                result.add(
+                        recipeId.getNamespace()
+                );
+            }
+        }
+
+        if (result.isEmpty()) {
+            result.add(
+                    methodSource == null
+                            || methodSource.isBlank()
+                            ? "minecraft"
+                            : methodSource
+            );
+        }
+
+        return Set.copyOf(
+                result
+        );
+    }
+
+    private String resolveProductionProcessSourceName(
+            CraftScopeProductionRoute route,
+            String sourceId
+    ) {
+        if (route != null
+                && sourceId != null
+                && sourceId.equals(
+                route.sourceModId()
+        )
+                && route.sourceModName() != null) {
+
+            String name =
+                    route
+                            .sourceModName()
+                            .getString();
+
+            if (name != null
+                    && !name.isBlank()) {
+
+                return name;
+            }
+        }
+
+        return CraftScopeProductionRouteTreeModel
+                .formatSourceName(
+                        sourceId
+                );
+    }
+
+    private void putProductionProcessOption(
+            Map<String, CraftScopeProductionRouteTreeModel.ProcessOption>
+                    options,
+            CraftScopeProductionRouteTreeModel.ProcessOption option
+    ) {
+        if (options == null
+                || option == null
+                || option.sourceId() == null
+                || option.sourceId().isBlank()
+                || option.processId() == null) {
+
+            return;
+        }
+
+        String key =
+                option.sourceId()
+                        + "|"
+                        + option.processId();
+
+        CraftScopeProductionRouteTreeModel.ProcessOption existing =
+                options.get(
+                        key
+                );
+
+        /*
+         * Prefer the copy tied to a concrete target-level route so a
+         * click can immediately drive Process Diagram when possible.
+         */
+        if (existing == null
+                || (
+                existing.routeIndex() < 0
+                        && option.routeIndex() >= 0
+        )) {
+
+            options.put(
+                    key,
+                    option
+            );
+        }
+    }
+
+    private void preserveOrChooseProductionProcessSelection() {
+        CraftScopeProductionRouteTreeModel.ProcessOption selected =
+                findProductionProcessOption(
+                        selectedProductionProcessSourceId,
+                        selectedProductionProcessId
+                );
+
+        if (selected != null) {
+            return;
+        }
+
+        CraftScopeProductionRouteTreeModel.ProcessOption routeMatch =
+                null;
+
+        for (CraftScopeProductionRouteTreeModel.ProcessOption option :
+                productionProcessOptions) {
+
+            if (option.routeIndex()
+                    == selectedProductionRouteIndex) {
+
+                routeMatch =
+                        option;
+
+                break;
+            }
+        }
+
+        if (routeMatch == null
+                && !productionProcessOptions.isEmpty()) {
+
+            routeMatch =
+                    productionProcessOptions.getFirst();
+        }
+
+        if (routeMatch == null) {
+            selectedProductionProcessSourceId =
+                    null;
+
+            selectedProductionProcessId =
+                    null;
+
+            return;
+        }
+
+        selectedProductionProcessSourceId =
+                routeMatch.sourceId();
+
+        selectedProductionProcessId =
+                routeMatch.processId();
+    }
+
+    private CraftScopeProductionRouteTreeModel.ProcessOption
+    findProductionProcessOption(
+            String sourceId,
+            ResourceLocation processId
+    ) {
+        if (sourceId == null
+                || processId == null) {
+
+            return null;
+        }
+
+        for (CraftScopeProductionRouteTreeModel.ProcessOption option :
+                productionProcessOptions) {
+
+            if (sourceId.equals(
+                    option.sourceId()
+            )
+                    && processId.equals(
+                    option.processId()
+            )) {
+
+                return option;
+            }
+        }
+
+        return null;
+    }
+
+    private void selectProductionProcessContext(
+            String sourceId,
+            ResourceLocation processId,
+            int routeIndex
+    ) {
+        if (sourceId == null
+                || sourceId.isBlank()
+                || processId == null) {
+
+            return;
+        }
+
+        selectedProductionProcessSourceId =
+                sourceId;
+
+        selectedProductionProcessId =
+                processId;
+
+        expandedProductionRouteSources.add(
+                sourceId
+        );
+
+        /*
+         * A process discovered on the target itself still maps to a
+         * concrete Process Diagram route. Nested process choices do
+         * not yet force a material branch; the next pass connects
+         * this context to Recipe Tree filtering.
+         */
+        if (routeIndex >= 0
+                && routeIndex < productionRoutes.size()) {
+
+            selectedProductionRouteIndex =
+                    routeIndex;
+
+            selectedDiagramNodeIndex =
+                    -1;
+
+            getSelectedProductionRoute();
+        }
+
+        clampRecipeProductionRouteScroll();
+    }
+    private void ensureSelectedProductionRouteSourceExpanded() {
+        if (selectedProductionProcessSourceId != null
+                && !selectedProductionProcessSourceId.isBlank()) {
+
+            expandedProductionRouteSources.add(
+                    selectedProductionProcessSourceId
+            );
+
+            return;
+        }
+
+        if (selectedProductionRouteIndex < 0
+                || selectedProductionRouteIndex
+                >= productionRoutes.size()) {
+
+            return;
+        }
+
+        CraftScopeProductionRoute route =
+                productionRoutes.get(
+                        selectedProductionRouteIndex
+                );
+
+        String sourceId =
+                route.sourceModId();
+
+        if (sourceId != null
+                && !sourceId.isBlank()) {
+
+            expandedProductionRouteSources.add(
+                    sourceId
+            );
+        }
+    }
+    private void toggleProductionRouteSource(
+            String sourceId
+    ) {
+        if (sourceId == null
+                || sourceId.isBlank()) {
+
+            return;
+        }
+
+        if (expandedProductionRouteSources.contains(
+                sourceId
+        )) {
+
+            expandedProductionRouteSources.remove(
+                    sourceId
+            );
+
+        } else {
+
+            expandedProductionRouteSources.add(
+                    sourceId
+            );
+        }
+
+        clampRecipeProductionRouteScroll();
+    }
+
+    private void clampRecipeProductionRouteScroll() {
+        recipeProductionRouteScroll =
+                Math.max(
+                        0.0D,
+                        Math.min(
+                                recipeProductionRouteScroll,
+                                recipeProductionRouteMaxScroll
+                        )
+                );
+    }
+
+    private boolean isMouseOverRecipeProductionRoutePanel(
+            double mouseX,
+            double mouseY
+    ) {
+        int left =
+                getContentLeft();
+
+        int right =
+                left
+                        + getRecipeRoutePanelWidth();
+
+        int top =
+                CONTENT_VIEWPORT_TOP;
+
+        int bottom =
+                getWindowBottom()
+                        - CONTENT_BOTTOM_MARGIN
+                        - 4;
+
+        return mouseX >= left + 2
+                && mouseX < right - 2
+                && mouseY >= top
+                && mouseY < bottom;
+    }
+
+    private String getProductionRouteTreeChildLabel(
+            CraftScopeProductionRouteTreeModel.Row row
+    ) {
+        if (row == null
+                || !row.isRoute()) {
+
+            return "";
+        }
+
+        String label =
+                row.displayName();
+
+        return label == null
+                ? ""
+                : label;
+    }
     private void renderRecipeProductionRoutes(
             GuiGraphics graphics,
             int left,
@@ -1050,16 +1855,16 @@ public class CraftScopeProjectScreen
         int rowHeight =
                 22;
 
-        int availableHeight =
-                bottom
-                        - rowTop
-                        - 4;
+        int viewportBottom =
+                Math.max(
+                        rowTop,
+                        bottom - 4
+                );
 
-        int maxVisible =
+        int viewportHeight =
                 Math.max(
                         0,
-                        availableHeight
-                                / rowHeight
+                        viewportBottom - rowTop
                 );
 
         ItemStack target =
@@ -1073,6 +1878,12 @@ public class CraftScopeProjectScreen
                     rowTop + 6,
                     CraftScopeUiTheme.TEXT_MUTED
             );
+
+            recipeProductionRouteScroll =
+                    0.0D;
+
+            recipeProductionRouteMaxScroll =
+                    0;
 
             return;
         }
@@ -1094,44 +1905,117 @@ public class CraftScopeProjectScreen
                     CraftScopeUiTheme.TEXT_MUTED
             );
 
+            recipeProductionRouteScroll =
+                    0.0D;
+
+            recipeProductionRouteMaxScroll =
+                    0;
+
             return;
         }
 
-        int visibleCount =
-                Math.min(
-                        productionRoutes.size(),
-                        maxVisible
+        List<CraftScopeProductionRouteTreeModel.Row> rows =
+                getProductionRouteTreeRows();
+
+        int contentHeight =
+                rows.size()
+                        * rowHeight;
+
+        recipeProductionRouteMaxScroll =
+                Math.max(
+                        0,
+                        contentHeight
+                                - viewportHeight
                 );
 
-        for (int i = 0;
-             i < visibleCount;
-             i++) {
+        clampRecipeProductionRouteScroll();
 
-            CraftScopeProductionRoute route =
-                    productionRoutes.get(i);
+        graphics.enableScissor(
+                left + 2,
+                rowTop,
+                right - 2,
+                viewportBottom
+        );
+
+        int y =
+                rowTop
+                        - (int) recipeProductionRouteScroll;
+
+        for (int rowIndex = 0;
+             rowIndex < rows.size();
+             rowIndex++) {
+
+            CraftScopeProductionRouteTreeModel.Row row =
+                    rows.get(
+                            rowIndex
+                    );
 
             int rowY =
-                    rowTop
-                            + i * rowHeight;
+                    y
+                            + rowIndex
+                            * rowHeight;
+
+            if (rowY + rowHeight < rowTop
+                    || rowY > viewportBottom) {
+
+                continue;
+            }
+
+            if (row.isSource()) {
+                String arrow =
+                        row.expanded()
+                                ? "-"
+                                : "+";
+
+                graphics.drawString(
+                        font,
+                        arrow,
+                        left + 8,
+                        rowY + 6,
+                        row.containsSelected()
+                                ? CraftScopeUiTheme.ACCENT
+                                : CraftScopeUiTheme.TEXT_SECONDARY
+                );
+
+                String groupLabel =
+                        row.sourceName()
+                                + " ("
+                                + row.processCount()
+                                + ")";
+
+                graphics.drawString(
+                        font,
+                        fitText(
+                                groupLabel,
+                                right - left - 28
+                        ),
+                        left + 20,
+                        rowY + 6,
+                        row.containsSelected()
+                                ? CraftScopeUiTheme.TEXT_PRIMARY
+                                : CraftScopeUiTheme.TEXT_SECONDARY
+                );
+
+                continue;
+            }
 
             boolean selected =
-                    i
-                            == selectedProductionRouteIndex;
+                    row.selected();
 
             if (selected) {
                 graphics.fill(
-                        left + 4,
+                        left + 12,
                         rowY,
-                        right - 4,
+                        right - 5,
                         rowY + rowHeight - 2,
                         CraftScopeUiTheme.ACCENT_BACKGROUND
                 );
 
                 CraftScopeUiTheme.drawBorder(
                         graphics,
-                        left + 4,
+                        left + 12,
                         rowY,
-                        right - 4,
+                        right - 5,
                         rowY + rowHeight - 2,
                         CraftScopeUiTheme.ACCENT
                 );
@@ -1139,18 +2023,16 @@ public class CraftScopeProjectScreen
 
             String label =
                     fitText(
-                            getProductionRouteLabel(
-                                    route
+                            getProductionRouteTreeChildLabel(
+                                    row
                             ),
-                            right
-                                    - left
-                                    - 18
+                            right - left - 34
                     );
 
             graphics.drawString(
                     font,
                     label,
-                    left + 9,
+                    left + 20,
                     rowY + 6,
                     selected
                             ? CraftScopeUiTheme.TEXT_PRIMARY
@@ -1158,25 +2040,60 @@ public class CraftScopeProjectScreen
             );
         }
 
-        if (productionRoutes.size()
-                > visibleCount) {
+        graphics.disableScissor();
 
-            int hiddenCount =
-                    productionRoutes.size()
-                            - visibleCount;
+        if (recipeProductionRouteMaxScroll > 0) {
+            int barX =
+                    right - 5;
 
-            graphics.drawString(
-                    font,
-                    "+"
-                            + hiddenCount
-                            + " more",
-                    left + 9,
-                    bottom - 13,
+            graphics.fill(
+                    barX,
+                    rowTop,
+                    barX + 3,
+                    viewportBottom,
+                    CraftScopeUiTheme.BORDER_SUBTLE
+            );
+
+            int thumbHeight =
+                    Math.max(
+                            12,
+                            viewportHeight
+                                    * viewportHeight
+                                    / Math.max(
+                                    1,
+                                    contentHeight
+                            )
+                    );
+
+            int travel =
+                    Math.max(
+                            0,
+                            viewportHeight
+                                    - thumbHeight
+                    );
+
+            int thumbOffset =
+                    recipeProductionRouteMaxScroll <= 0
+                            ? 0
+                            : (int) (
+                            (
+                                    recipeProductionRouteScroll
+                                            / recipeProductionRouteMaxScroll
+                            )
+                                    * travel
+                    );
+
+            graphics.fill(
+                    barX,
+                    rowTop + thumbOffset,
+                    barX + 3,
+                    rowTop
+                            + thumbOffset
+                            + thumbHeight,
                     CraftScopeUiTheme.TEXT_MUTED
             );
         }
-    }
-    private int renderRecipeNode(
+    }    private int renderRecipeNode(
             GuiGraphics graphics,
             CraftScopeRecipeNode node,
             String nodePath,
@@ -1233,6 +2150,15 @@ public class CraftScopeProjectScreen
                     node.isCraftable()
                             ? CraftScopeUiTheme.TEXT_PRIMARY
                             : CraftScopeUiTheme.TEXT_SECONDARY
+            );
+
+            renderIngredientVariantSelector(
+                    graphics,
+                    node,
+                    nodePath,
+                    iconX,
+                    rowY,
+                    text
             );
 
             renderRecipeSelector(
@@ -1328,7 +2254,10 @@ public class CraftScopeProjectScreen
                 iconX
                         + 20
                         + font.width(itemText)
-                        + 8;
+                        + 8
+                        + getIngredientVariantSelectorAdvance(
+                        node
+                );
 
         int maxX =
                 getContentRight()
@@ -4277,6 +5206,12 @@ public class CraftScopeProjectScreen
     private ItemStack getDisplayStack(
             CraftScopeRecipeNode node
     ) {
+        if (node.hasSelectableIngredientAlternatives()
+                && node.hasExplicitIngredientVariantSelection()) {
+
+            return node.getStack();
+        }
+
         return getCyclingStack(
                 node.getAcceptedVariants(),
                 node.getStack()
@@ -4317,6 +5252,21 @@ public class CraftScopeProjectScreen
     private String getNodeDisplayName(
             CraftScopeRecipeNode node
     ) {
+        if (node.hasSelectableIngredientAlternatives()) {
+
+            if (node.hasExplicitIngredientVariantSelection()) {
+
+                return node
+                        .getStack()
+                        .getHoverName()
+                        .getString();
+            }
+
+            return getIngredientAlternativeSummary(
+                    node.getAcceptedVariants()
+            );
+        }
+
         return getVariantDisplayName(
                 node.getAcceptedVariants(),
                 node.getStack()
@@ -4524,6 +5474,58 @@ public class CraftScopeProjectScreen
         );
     }
 
+    private void expandAllRecipeNodes() {
+        if (currentTree == null
+                || currentTree.getRoot() == null) {
+
+            return;
+        }
+
+        expandedNodes.clear();
+
+        expandAllRecipeNodes(
+                currentTree.getRoot(),
+                "root"
+        );
+    }
+
+    private void expandAllRecipeNodes(
+            CraftScopeRecipeNode node,
+            String nodePath
+    ) {
+        if (node == null
+                || node.getChildren().isEmpty()) {
+
+            return;
+        }
+
+        expandedNodes.add(
+                nodePath
+        );
+
+        List<CraftScopeRecipeNode> children =
+                node.getChildren();
+
+        for (int i = 0;
+             i < children.size();
+             i++) {
+
+            CraftScopeRecipeNode child =
+                    children.get(i);
+
+            String childPath =
+                    buildChildPath(
+                            nodePath,
+                            i,
+                            child
+                    );
+
+            expandAllRecipeNodes(
+                    child,
+                    childPath
+            );
+        }
+    }
     private int getVisibleNodeCount() {
         if (currentTree == null
                 || currentTree.getRoot() == null) {
@@ -4674,6 +5676,15 @@ public class CraftScopeProjectScreen
         if (activeView == ViewMode.PROCESS_DIAGRAM
                 && button == 0
                 && handleProductionRouteClick(
+                mouseX,
+                mouseY
+        )) {
+            return true;
+        }
+
+        if (activeView == ViewMode.RECIPE_TREE
+                && button == 0
+                && handleIngredientChoicePopupClick(
                 mouseX,
                 mouseY
         )) {
@@ -4959,77 +5970,68 @@ public class CraftScopeProjectScreen
         int rowHeight =
                 22;
 
-        int availableHeight =
-                bottom
-                        - rowTop
-                        - 4;
-
-        int maxVisible =
+        int viewportBottom =
                 Math.max(
-                        0,
-                        availableHeight
-                                / rowHeight
-                );
-
-        int visibleCount =
-                Math.min(
-                        productionRoutes.size(),
-                        maxVisible
+                        rowTop,
+                        bottom - 4
                 );
 
         if (mouseX < left + 4
                 || mouseX >= right - 4
                 || mouseY < rowTop
-                || mouseY >= rowTop
-                + visibleCount
-                * rowHeight) {
+                || mouseY >= viewportBottom) {
 
             return false;
         }
 
-        int clickedIndex =
+        List<CraftScopeProductionRouteTreeModel.Row> rows =
+                getProductionRouteTreeRows();
+
+        int clickedRowIndex =
                 (int) (
                         (
                                 mouseY
                                         - rowTop
+                                        + recipeProductionRouteScroll
                         )
                                 / rowHeight
                 );
 
-        if (clickedIndex < 0
-                || clickedIndex
-                >= visibleCount) {
+        if (clickedRowIndex < 0
+                || clickedRowIndex
+                >= rows.size()) {
 
             return false;
         }
 
-        selectedProductionRouteIndex =
-                clickedIndex;
+        CraftScopeProductionRouteTreeModel.Row row =
+                rows.get(
+                        clickedRowIndex
+                );
 
-        selectedDiagramNodeIndex =
-                -1;
+        if (row.isSource()) {
+            toggleProductionRouteSource(
+                    row.sourceId()
+            );
 
-        /*
-         * Deliberately resolve the selected route immediately.
-         *
-         * MixinCraftScopeProcessRouteSelectionSync injects into
-         * getSelectedProductionRoute(). Calling it here gives the
-         * Recipe Tree route panel the exact same synchronization
-         * behavior as selecting a row on Process Diagram:
-         *
-         * - same material route -> keep the current tree
-         * - different material route -> update root override,
-         *   save the project, and rebuild the tree
-         *
-         * Total Materials therefore sees the selected route before
-         * the player opens that tab.
-         */
-        getSelectedProductionRoute();
+            return true;
+        }
+
+
+        if (!row.isRoute()
+                || row.processId() == null) {
+
+            return false;
+        }
+
+        selectProductionProcessContext(
+                row.sourceId(),
+                row.processId(),
+                row.routeIndex()
+        );
 
         return true;
-    }
-
-    private boolean handleTreeClick(
+    }    private boolean handleTreeClick(
             double mouseX,
             double mouseY
     ) {
@@ -5098,6 +6100,35 @@ public class CraftScopeProjectScreen
                 getNodeDisplayName(node)
                         + " x"
                         + node.getRequiredCount();
+
+        if (isIngredientVariantSelectorClicked(
+                node,
+                nodePath,
+                iconX,
+                rowY,
+                itemText,
+                mouseX,
+                mouseY
+        )) {
+
+            if (nodePath.equals(
+                    ingredientChoicePopupPath
+            )) {
+
+                ingredientChoicePopupPath =
+                        null;
+
+            } else {
+
+                ingredientChoicePopupPath =
+                        nodePath;
+            }
+
+            return new ClickResult(
+                    true,
+                    rowY + CONTENT_ROW_HEIGHT
+            );
+        }
 
         if (isRecipeSelectorClicked(
                 node,
@@ -5179,6 +6210,521 @@ public class CraftScopeProjectScreen
         return new ClickResult(false, nextY);
     }
 
+    private void renderIngredientVariantSelector(
+            GuiGraphics graphics,
+            CraftScopeRecipeNode node,
+            String nodePath,
+            int iconX,
+            int rowY,
+            String itemText
+    ) {
+        if (node == null
+                || !node.hasSelectableIngredientAlternatives()) {
+
+            return;
+        }
+
+        String selectorText =
+                node.hasExplicitIngredientVariantSelection()
+                        ? "[Change]"
+                        : "[Choose]";
+
+        int selectorX =
+                getIngredientVariantSelectorX(
+                        node,
+                        nodePath,
+                        iconX,
+                        itemText,
+                        selectorText
+                );
+
+        graphics.drawString(
+                font,
+                selectorText,
+                selectorX,
+                rowY + 4,
+                CraftScopeUiTheme.ACCENT
+        );
+
+        if (nodePath.equals(
+                ingredientChoicePopupPath
+        )) {
+
+            ingredientChoicePopupNode =
+                    node;
+
+            ingredientChoicePopupAnchorVisible =
+                    true;
+
+            ingredientChoicePopupAnchorX =
+                    selectorX;
+
+            ingredientChoicePopupAnchorY =
+                    rowY + CONTENT_ROW_HEIGHT;
+        }
+    }
+
+    private int getIngredientVariantSelectorAdvance(
+            CraftScopeRecipeNode node
+    ) {
+        if (node == null
+                || !node.hasSelectableIngredientAlternatives()) {
+
+            return 0;
+        }
+
+        String text =
+                node.hasExplicitIngredientVariantSelection()
+                        ? "[Change]"
+                        : "[Choose]";
+
+        return font.width(
+                text
+        ) + 6;
+    }
+
+    private int getIngredientVariantSelectorX(
+            CraftScopeRecipeNode node,
+            String nodePath,
+            int iconX,
+            String itemText,
+            String selectorText
+    ) {
+        int desiredX =
+                iconX
+                        + 20
+                        + font.width(itemText)
+                        + 8;
+
+        int reserve =
+                0;
+
+        List<ResourceLocation> recipes =
+                recipeChoices.get(
+                        nodePath
+                );
+
+        if (recipes != null
+                && recipes.size() > 1
+                && node.getPreferredRecipeId() != null) {
+
+            int currentIndex =
+                    getCurrentRecipeIndex(
+                            nodePath,
+                            node
+                    );
+
+            String recipeText =
+                    "["
+                            + (currentIndex + 1)
+                            + "/"
+                            + recipes.size()
+                            + "]";
+
+            reserve =
+                    font.width(
+                            recipeText
+                    ) + 6;
+        }
+
+        int maxX =
+                getContentRight()
+                        - font.width(
+                        selectorText
+                )
+                        - reserve
+                        - 8;
+
+        return Math.min(
+                desiredX,
+                maxX
+        );
+    }
+
+    private boolean isIngredientVariantSelectorClicked(
+            CraftScopeRecipeNode node,
+            String nodePath,
+            int iconX,
+            int rowY,
+            String itemText,
+            double mouseX,
+            double mouseY
+    ) {
+        if (node == null
+                || !node.hasSelectableIngredientAlternatives()) {
+
+            return false;
+        }
+
+        String selectorText =
+                node.hasExplicitIngredientVariantSelection()
+                        ? "[Change]"
+                        : "[Choose]";
+
+        int selectorX =
+                getIngredientVariantSelectorX(
+                        node,
+                        nodePath,
+                        iconX,
+                        itemText,
+                        selectorText
+                );
+
+        return mouseX >= selectorX - 2
+                && mouseX
+                < selectorX
+                + font.width(
+                selectorText
+        )
+                + 2
+                && mouseY >= rowY
+                && mouseY
+                < rowY + CONTENT_ROW_HEIGHT;
+    }
+
+    private void renderIngredientChoicePopup(
+            GuiGraphics graphics,
+            int mouseX,
+            int mouseY
+    ) {
+        if (ingredientChoicePopupPath == null
+                || ingredientChoicePopupNode == null
+                || !ingredientChoicePopupAnchorVisible) {
+
+            ingredientChoicePopupLeft =
+                    0;
+
+            ingredientChoicePopupTop =
+                    0;
+
+            ingredientChoicePopupRight =
+                    0;
+
+            ingredientChoicePopupBottom =
+                    0;
+
+            return;
+        }
+
+        List<ItemStack> variants =
+                ingredientChoicePopupNode
+                        .getAcceptedVariants();
+
+        if (variants.isEmpty()) {
+            return;
+        }
+
+        int popupWidth =
+                120;
+
+        for (ItemStack variant :
+                variants) {
+
+            popupWidth =
+                    Math.max(
+                            popupWidth,
+                            font.width(
+                                    variant
+                                            .getHoverName()
+                                            .getString()
+                            )
+                                    + 38
+                    );
+        }
+
+        popupWidth =
+                Math.min(
+                        230,
+                        popupWidth
+                );
+
+        int popupHeight =
+                variants.size()
+                        * ingredientChoicePopupRowHeight
+                        + 4;
+
+        int treeLeft =
+                getRecipeTreePanelLeft()
+                        + 4;
+
+        int treeRight =
+                getContentRight()
+                        - 4;
+
+        int popupLeft =
+                Math.max(
+                        treeLeft,
+                        Math.min(
+                                ingredientChoicePopupAnchorX,
+                                treeRight - popupWidth
+                        )
+                );
+
+        int popupTop =
+                ingredientChoicePopupAnchorY;
+
+        if (popupTop + popupHeight
+                > getViewportBottom()) {
+
+            popupTop =
+                    ingredientChoicePopupAnchorY
+                            - CONTENT_ROW_HEIGHT
+                            - popupHeight;
+        }
+
+        popupTop =
+                Math.max(
+                        CONTENT_VIEWPORT_TOP,
+                        popupTop
+                );
+
+        int popupRight =
+                popupLeft + popupWidth;
+
+        int popupBottom =
+                popupTop + popupHeight;
+
+        ingredientChoicePopupLeft =
+                popupLeft;
+
+        ingredientChoicePopupTop =
+                popupTop;
+
+        ingredientChoicePopupRight =
+                popupRight;
+
+        ingredientChoicePopupBottom =
+                popupBottom;
+
+        CraftScopeUiTheme.drawPanel(
+                graphics,
+                popupLeft,
+                popupTop,
+                popupRight,
+                popupBottom
+        );
+
+        CraftScopeUiTheme.drawBorder(
+                graphics,
+                popupLeft,
+                popupTop,
+                popupRight,
+                popupBottom,
+                CraftScopeUiTheme.BORDER_HOVER
+        );
+
+        ItemStack selectedStack =
+                ingredientChoicePopupNode
+                        .getStack();
+
+        int rowTop =
+                popupTop + 2;
+
+        for (int i = 0;
+             i < variants.size();
+             i++) {
+
+            ItemStack variant =
+                    variants.get(i);
+
+            int optionTop =
+                    rowTop
+                            + i
+                            * ingredientChoicePopupRowHeight;
+
+            int optionBottom =
+                    optionTop
+                            + ingredientChoicePopupRowHeight;
+
+            boolean selected =
+                    ingredientChoicePopupNode
+                            .hasExplicitIngredientVariantSelection()
+                            && ItemStack.isSameItemSameComponents(
+                            variant,
+                            selectedStack
+                    );
+
+            boolean hovered =
+                    mouseX >= popupLeft + 2
+                            && mouseX < popupRight - 2
+                            && mouseY >= optionTop
+                            && mouseY < optionBottom;
+
+            if (selected) {
+                graphics.fill(
+                        popupLeft + 2,
+                        optionTop,
+                        popupRight - 2,
+                        optionBottom,
+                        CraftScopeUiTheme.ACCENT_BACKGROUND
+                );
+
+            } else if (hovered) {
+
+                graphics.fill(
+                        popupLeft + 2,
+                        optionTop,
+                        popupRight - 2,
+                        optionBottom,
+                        CraftScopeUiTheme.BUTTON_HOVER
+                );
+            }
+
+            graphics.renderItem(
+                    variant,
+                    popupLeft + 6,
+                    optionTop + 3
+            );
+
+            graphics.drawString(
+                    font,
+                    fitText(
+                            variant
+                                    .getHoverName()
+                                    .getString(),
+                            popupRight
+                                    - popupLeft
+                                    - 34
+                    ),
+                    popupLeft + 28,
+                    optionTop + 7,
+                    selected
+                            ? CraftScopeUiTheme.TEXT_PRIMARY
+                            : CraftScopeUiTheme.TEXT_SECONDARY
+            );
+        }
+    }
+
+    private boolean handleIngredientChoicePopupClick(
+            double mouseX,
+            double mouseY
+    ) {
+        if (ingredientChoicePopupPath == null
+                || ingredientChoicePopupNode == null
+                || ingredientChoicePopupRight
+                <= ingredientChoicePopupLeft
+                || ingredientChoicePopupBottom
+                <= ingredientChoicePopupTop) {
+
+            return false;
+        }
+
+        if (mouseX < ingredientChoicePopupLeft
+                || mouseX >= ingredientChoicePopupRight
+                || mouseY < ingredientChoicePopupTop
+                || mouseY >= ingredientChoicePopupBottom) {
+
+            /*
+             * Close the popup but allow the ordinary Recipe Tree
+             * click handler to process the click underneath.
+             */
+            ingredientChoicePopupPath =
+                    null;
+
+            ingredientChoicePopupNode =
+                    null;
+
+            return false;
+        }
+
+        int index =
+                (int) (
+                        (
+                                mouseY
+                                        - ingredientChoicePopupTop
+                                        - 2
+                        )
+                                / ingredientChoicePopupRowHeight
+                );
+
+        List<ItemStack> variants =
+                ingredientChoicePopupNode
+                        .getAcceptedVariants();
+
+        if (index < 0
+                || index >= variants.size()) {
+
+            return true;
+        }
+
+        ItemStack selected =
+                variants.get(
+                        index
+                );
+
+        ResourceLocation selectedId =
+                BuiltInRegistries.ITEM.getKey(
+                        selected.getItem()
+                );
+
+        String selectedPath =
+                ingredientChoicePopupPath;
+
+        project.setIngredientVariantOverride(
+                selectedPath,
+                selectedId.toString()
+        );
+
+        /*
+         * A different ingredient strategy invalidates every recipe
+         * choice below this node, but not the selected ingredient
+         * itself.
+         */
+        clearDescendantRecipeState(
+                selectedPath
+        );
+
+        expandedNodes.add(
+                selectedPath
+        );
+
+        ingredientChoicePopupPath =
+                null;
+
+        ingredientChoicePopupNode =
+                null;
+
+        CraftScopeProjectManager.save();
+
+        rebuildTree();
+
+        return true;
+    }
+
+    private String getIngredientAlternativeSummary(
+            List<ItemStack> variants
+    ) {
+        if (variants == null
+                || variants.isEmpty()) {
+
+            return "Choose Ingredient";
+        }
+
+        if (variants.size() == 1) {
+
+            return variants
+                    .getFirst()
+                    .getHoverName()
+                    .getString();
+        }
+
+        if (variants.size() == 2) {
+
+            return variants
+                    .get(0)
+                    .getHoverName()
+                    .getString()
+                    + " OR "
+                    + variants
+                    .get(1)
+                    .getHoverName()
+                    .getString();
+        }
+
+        return "Choose Ingredient ("
+                + variants.size()
+                + " options)";
+    }
     private boolean isRecipeSelectorClicked(
             CraftScopeRecipeNode node,
             String nodePath,
@@ -5264,6 +6810,14 @@ public class CraftScopeProjectScreen
 
         CraftScopeProjectManager.save();
         rebuildTree();
+
+        /*
+         * A recipe choice can replace an entire downstream branch.
+         * Re-open the rebuilt tree so the player can immediately see
+         * what changed (for example Cardboard -> Leather).
+         */
+        expandAllRecipeNodes();
+        clampTreeScroll();
     }
 
     private void clearDescendantRecipeState(
@@ -5286,6 +6840,32 @@ public class CraftScopeProjectScreen
         expandedNodes.removeIf(
                 key -> key.startsWith(prefix)
         );
+
+        List<String> savedIngredientDescendants =
+                new ArrayList<>();
+
+        for (String key :
+                project
+                        .getIngredientVariantOverrides()
+                        .keySet()) {
+
+            if (key.startsWith(
+                    prefix
+            )) {
+
+                savedIngredientDescendants.add(
+                        key
+                );
+            }
+        }
+
+        for (String key :
+                savedIngredientDescendants) {
+
+            project.removeIngredientVariantOverride(
+                    key
+            );
+        }
 
         List<String> savedDescendants =
                 new ArrayList<>();
@@ -5312,6 +6892,23 @@ public class CraftScopeProjectScreen
             double scrollX,
             double scrollY
     ) {
+        if (activeView == ViewMode.RECIPE_TREE
+                && isMouseOverRecipeProductionRoutePanel(
+                mouseX,
+                mouseY
+        )) {
+
+            if (recipeProductionRouteMaxScroll > 0) {
+                recipeProductionRouteScroll -=
+                        scrollY
+                                * SCROLL_AMOUNT;
+
+                clampRecipeProductionRouteScroll();
+            }
+
+            return true;
+        }
+
         int viewportTop = CONTENT_VIEWPORT_TOP;
         int viewportBottom = getViewportBottom();
 
@@ -5407,11 +7004,32 @@ public class CraftScopeProjectScreen
             int childIndex,
             CraftScopeRecipeNode child
     ) {
+        ItemStack pathStack =
+                child.getStack();
+
+        List<ItemStack> accepted =
+                child.getAcceptedVariants();
+
+        /*
+         * Keep node paths stable when a selectable ingredient changes
+         * from Cardboard to Leather.
+         */
+        if (accepted != null
+                && !accepted.isEmpty()) {
+
+            pathStack =
+                    accepted
+                            .getFirst()
+                            .copy();
+        }
+
         return parentPath
                 + "/"
                 + childIndex
                 + ":"
-                + getItemId(child.getStack());
+                + getItemId(
+                pathStack
+        );
     }
 
     private String getItemId(ItemStack stack) {
@@ -5451,6 +7069,7 @@ public class CraftScopeProjectScreen
         }
 
         project.clearRecipeOverrides();
+        project.clearIngredientVariantOverrides();
 
         expandedNodes.clear();
         recipeOverrides.clear();
@@ -5459,6 +7078,14 @@ public class CraftScopeProjectScreen
 
         selectedProductionRouteIndex = -1;
         selectedDiagramNodeIndex = -1;
+
+        expandedProductionRouteSources.clear();
+        recipeProductionRouteScroll = 0.0D;
+        recipeProductionRouteMaxScroll = 0;
+
+        selectedProductionProcessSourceId = null;
+        selectedProductionProcessId = null;
+        productionProcessOptions = List.of();
 
         treeScroll = 0;
         materialScroll = 0;

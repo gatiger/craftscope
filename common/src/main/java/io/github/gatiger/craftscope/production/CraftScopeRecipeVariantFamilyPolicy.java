@@ -223,6 +223,137 @@ public final class CraftScopeRecipeVariantFamilyPolicy {
         );
     }
 
+    /*
+     * Equivalent ingredient variants may rotate automatically because
+     * choosing one does not represent a meaningfully different
+     * production strategy.
+     *
+     * Heterogeneous alternatives must be chosen explicitly.
+     *
+     * Keep this deliberately conservative. A shared English suffix
+     * such as "Ingot" is NOT enough to prove two ingredients are
+     * equivalent production strategies.
+     *
+     * Examples:
+     *
+     *     Oak / Spruce / Birch Log     -> equivalent
+     *     Red / Brown Mushroom         -> equivalent
+     *     Leather / Cardboard          -> selectable alternative
+     *     Coal / Charcoal              -> selectable alternative
+     */
+    public static boolean isEquivalentIngredientFamily(
+            List<ItemStack> variants
+    ) {
+        if (variants == null
+                || variants.size() <= 1) {
+
+            return true;
+        }
+
+        if (allMatchTag(
+                variants,
+                ItemTags.LOGS
+        )
+                || allMatchTag(
+                variants,
+                ItemTags.PLANKS
+        )
+                || allMatchTag(
+                variants,
+                ItemTags.WOODEN_SLABS
+        )
+                || allMatchTag(
+                variants,
+                ItemTags.WOOL
+        )) {
+
+            return true;
+        }
+
+        return isVanillaMushroomPair(
+                variants
+        );
+    }
+
+    private static boolean allMatchTag(
+            List<ItemStack> variants,
+            TagKey<Item> tag
+    ) {
+        if (variants == null
+                || variants.isEmpty()
+                || tag == null) {
+
+            return false;
+        }
+
+        for (ItemStack stack :
+                variants) {
+
+            if (stack == null
+                    || stack.isEmpty()
+                    || !stack.is(
+                    tag
+            )) {
+
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static boolean isVanillaMushroomPair(
+            List<ItemStack> variants
+    ) {
+        if (variants == null
+                || variants.size() != 2) {
+
+            return false;
+        }
+
+        boolean red =
+                false;
+
+        boolean brown =
+                false;
+
+        for (ItemStack stack :
+                variants) {
+
+            if (stack == null
+                    || stack.isEmpty()) {
+
+                return false;
+            }
+
+            ResourceLocation id =
+                    BuiltInRegistries.ITEM.getKey(
+                            stack.getItem()
+                    );
+
+            if ("minecraft:red_mushroom".equals(
+                    id.toString()
+            )) {
+
+                red =
+                        true;
+
+            } else if ("minecraft:brown_mushroom".equals(
+                    id.toString()
+            )) {
+
+                brown =
+                        true;
+
+            } else {
+
+                return false;
+            }
+        }
+
+        return red
+                && brown;
+    }
     private static Family classify(
             CraftScopeResourceAmount resource
     ) {

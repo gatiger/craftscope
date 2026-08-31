@@ -5,6 +5,7 @@ import io.github.gatiger.craftscope.production.CraftScopeProductionRoute;
 import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
 import io.github.gatiger.craftscope.recipe.CraftScopeProductionRecipeTreeBuilder;
 import io.github.gatiger.craftscope.recipe.CraftScopeRecipeTree;
+import io.github.gatiger.craftscope.project.CraftScopeProject;
 import io.github.gatiger.craftscope.ui.CraftScopeRecipeSourceUiModel.Accumulator;
 import io.github.gatiger.craftscope.ui.CraftScopeRecipeSourceUiModel.Entry;
 import io.github.gatiger.craftscope.ui.CraftScopeRecipeSourceUiModel.Layout;
@@ -62,6 +63,10 @@ public abstract class MixinCraftScopeProjectScreen {
     @Final
     private Map<String, List<ResourceLocation>> recipeChoices;
 
+    @Shadow
+    @Final
+    private CraftScopeProject project;
+
     @Unique
     private static final int CRAFTSCOPE_SOURCE_ROW_HEIGHT = 20;
 
@@ -112,6 +117,7 @@ public abstract class MixinCraftScopeProjectScreen {
                 target,
                 targetCount,
                 overrides,
+                craftscope$getIngredientVariantOverrides(),
                 craftscope$selectedRecipeSourceId
         );
     }
@@ -120,6 +126,35 @@ public abstract class MixinCraftScopeProjectScreen {
      * Keep the selector's source list synchronized with the actual
      * normalized direct routes that are loaded at runtime.
      */
+    @Unique
+    private Map<String, ResourceLocation>
+    craftscope$getIngredientVariantOverrides() {
+
+        Map<String, ResourceLocation> result =
+                new LinkedHashMap<>();
+
+        for (Map.Entry<String, String> entry :
+                project
+                        .getIngredientVariantOverrides()
+                        .entrySet()) {
+
+            ResourceLocation id =
+                    ResourceLocation.tryParse(
+                            entry.getValue()
+                    );
+
+            if (id != null) {
+                result.put(
+                        entry.getKey(),
+                        id
+                );
+            }
+        }
+
+        return Map.copyOf(
+                result
+        );
+    }
     @Inject(
             method = "rebuildTree",
             at = @At("RETURN")

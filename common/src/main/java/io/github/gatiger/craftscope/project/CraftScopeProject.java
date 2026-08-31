@@ -10,40 +10,34 @@ public class CraftScopeProject {
     private String name;
     private String targetItemId;
 
-    /*
-     * Serialized full ItemStack for component-aware targets.
-     *
-     * Examples:
-     *
-     *     Poison Tipped Arrow
-     *     Slowness Tipped Arrow
-     *     Ominous Bottle with amplifier
-     *
-     * targetItemId remains as the backward-compatible base item ID.
-     *
-     * Projects created before this field existed simply load it as
-     * null and continue using the old ID-only behavior.
-     */
     private String targetItemStackJson;
 
     private int targetCount;
 
     /*
-     * Stores only recipe selections that differ from
-     * CraftScope's automatically preferred recipe.
-     *
      * Key:
      *   Recipe-tree node path.
      *
      * Value:
-     *   Recipe ResourceLocation stored as a String.
+     *   Selected recipe/route ResourceLocation.
+     */
+    private Map<String, String> recipeOverrides;
+
+    /*
+     * Persisted ingredient-alternative choices.
      *
      * Example:
      *
-     * root/1:minecraft:stick
-     *     -> minecraft:stick_from_bamboo
+     * Book ingredient accepts:
+     *   minecraft:leather
+     *   create:cardboard
+     *
+     * The node path stores whichever alternative the player chose.
+     * This is intentionally separate from recipeOverrides because
+     * choosing WHAT material to use is different from choosing HOW
+     * to produce that material.
      */
-    private Map<String, String> recipeOverrides;
+    private Map<String, String> ingredientVariantOverrides;
 
     public CraftScopeProject(
             String id,
@@ -57,6 +51,7 @@ public class CraftScopeProject {
         this.targetItemStackJson = null;
         this.targetCount = targetCount;
         this.recipeOverrides = new HashMap<>();
+        this.ingredientVariantOverrides = new HashMap<>();
     }
 
     public String getId() {
@@ -92,13 +87,34 @@ public class CraftScopeProject {
     ) {
         ensureRecipeOverrides();
 
-        return recipeOverrides.get(nodePath);
+        return recipeOverrides.get(
+                nodePath
+        );
+    }
+
+    public Map<String, String> getIngredientVariantOverrides() {
+        ensureIngredientVariantOverrides();
+
+        return Collections.unmodifiableMap(
+                ingredientVariantOverrides
+        );
+    }
+
+    public String getIngredientVariantOverride(
+            String nodePath
+    ) {
+        ensureIngredientVariantOverrides();
+
+        return ingredientVariantOverrides.get(
+                nodePath
+        );
     }
 
     public void setName(
             String name
     ) {
-        this.name = name;
+        this.name =
+                name;
     }
 
     public void setTargetItemId(
@@ -107,13 +123,6 @@ public class CraftScopeProject {
         this.targetItemId =
                 targetItemId;
 
-        /*
-         * An ID-only target assignment invalidates any previously
-         * stored component-bearing stack.
-         *
-         * craftscope$setTargetItem stores the new serialized stack
-         * immediately after setting the ID.
-         */
         this.targetItemStackJson =
                 null;
     }
@@ -131,7 +140,8 @@ public class CraftScopeProject {
     public void setTargetCount(
             int targetCount
     ) {
-        this.targetCount = targetCount;
+        this.targetCount =
+                targetCount;
     }
 
     public void setRecipeOverride(
@@ -149,7 +159,10 @@ public class CraftScopeProject {
         if (recipeId == null
                 || recipeId.isBlank()) {
 
-            recipeOverrides.remove(nodePath);
+            recipeOverrides.remove(
+                    nodePath
+            );
+
             return;
         }
 
@@ -164,7 +177,9 @@ public class CraftScopeProject {
     ) {
         ensureRecipeOverrides();
 
-        recipeOverrides.remove(nodePath);
+        recipeOverrides.remove(
+                nodePath
+        );
     }
 
     public void clearRecipeOverrides() {
@@ -173,17 +188,64 @@ public class CraftScopeProject {
         recipeOverrides.clear();
     }
 
+    public void setIngredientVariantOverride(
+            String nodePath,
+            String itemId
+    ) {
+        ensureIngredientVariantOverrides();
+
+        if (nodePath == null
+                || nodePath.isBlank()) {
+
+            return;
+        }
+
+        if (itemId == null
+                || itemId.isBlank()) {
+
+            ingredientVariantOverrides.remove(
+                    nodePath
+            );
+
+            return;
+        }
+
+        ingredientVariantOverrides.put(
+                nodePath,
+                itemId
+        );
+    }
+
+    public void removeIngredientVariantOverride(
+            String nodePath
+    ) {
+        ensureIngredientVariantOverrides();
+
+        ingredientVariantOverrides.remove(
+                nodePath
+        );
+    }
+
+    public void clearIngredientVariantOverrides() {
+        ensureIngredientVariantOverrides();
+
+        ingredientVariantOverrides.clear();
+    }
+
     private void ensureRecipeOverrides() {
-        /*
-         * Projects created before recipe persistence was
-         * introduced will not contain recipeOverrides in
-         * projects.json.
-         *
-         * Gson therefore loads the field as null. Creating
-         * the map here keeps old project files compatible.
-         */
         if (recipeOverrides == null) {
             recipeOverrides =
+                    new HashMap<>();
+        }
+    }
+
+    private void ensureIngredientVariantOverrides() {
+        /*
+         * Projects created before ingredient alternative selection
+         * existed deserialize this field as null.
+         */
+        if (ingredientVariantOverrides == null) {
+            ingredientVariantOverrides =
                     new HashMap<>();
         }
     }

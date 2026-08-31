@@ -147,7 +147,19 @@ public final class CraftScopeProductionRouteQuery {
          * actual process options.
          */
         List<CraftScopeProductionRoute> processMaterialRoutes =
-                directRoutes;
+                new ArrayList<>();
+
+        for (CraftScopeProductionRoute directRoute :
+                directRoutes) {
+
+            processMaterialRoutes.add(
+                    CraftScopeProductionRouteExpander
+                            .applyIngredientSelections(
+                                    directRoute,
+                                    recipeSelections
+                            )
+            );
+        }
 
         List<CraftScopeProductionRoute> processOptions =
                 consolidateEquivalentProcessOptions(
@@ -1196,6 +1208,54 @@ public final class CraftScopeProductionRouteQuery {
     ) {
         if (node == null) {
             return;
+        }
+
+        /*
+         * Preserve ingredient-strategy selection separately from
+         * recipe selection.
+         *
+         * When unresolved, the production expander is explicitly
+         * told not to choose one alternative on the player's behalf.
+         */
+        if (node.hasSelectableIngredientAlternatives()) {
+
+            ItemStack activeStack =
+                    node.getStack();
+
+            ResourceLocation activeVariant =
+                    node.hasExplicitIngredientVariantSelection()
+                            && !activeStack.isEmpty()
+                            ? BuiltInRegistries.ITEM.getKey(
+                            activeStack.getItem()
+                    )
+                            : CraftScopeIngredientVariantSelection.UNRESOLVED;
+
+            for (ItemStack variant :
+                    node.getAcceptedVariants()) {
+
+                if (variant == null
+                        || variant.isEmpty()) {
+
+                    continue;
+                }
+
+                ResourceLocation variantId =
+                        BuiltInRegistries.ITEM.getKey(
+                                variant.getItem()
+                        );
+
+                ResourceLocation selectionKey =
+                        CraftScopeIngredientVariantSelection.keyFor(
+                                variantId
+                        );
+
+                if (selectionKey != null) {
+                    selections.put(
+                            selectionKey,
+                            activeVariant
+                    );
+                }
+            }
         }
 
         ResourceLocation selectedRecipe =

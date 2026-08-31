@@ -7,6 +7,7 @@ import io.github.gatiger.craftscope.production.CraftScopeProductionRouteQuery;
 import io.github.gatiger.craftscope.production.CraftScopeProductionStep;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
 import io.github.gatiger.craftscope.production.CraftScopeResourceKind;
+import io.github.gatiger.craftscope.production.CraftScopeRecipeVariantFamilyPolicy;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
@@ -92,6 +93,22 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             Map<String, ResourceLocation> recipeOverrides,
             String rootSourceModId
     ) {
+        return resolveTree(
+                target,
+                targetCount,
+                recipeOverrides,
+                Map.of(),
+                rootSourceModId
+        );
+    }
+
+    public static CraftScopeRecipeTree resolveTree(
+            ItemStack target,
+            int targetCount,
+            Map<String, ResourceLocation> recipeOverrides,
+            Map<String, ResourceLocation> ingredientVariantOverrides,
+            String rootSourceModId
+    ) {
         if (target == null
                 || target.isEmpty()
                 || targetCount <= 0) {
@@ -103,6 +120,11 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                 recipeOverrides == null
                         ? Map.of()
                         : recipeOverrides;
+
+        Map<String, ResourceLocation> variantOverrides =
+                ingredientVariantOverrides == null
+                        ? Map.of()
+                        : ingredientVariantOverrides;
 
         String sourceFilter =
                 rootSourceModId == null
@@ -117,6 +139,7 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         List.of(target),
                         "root",
                         overrides,
+                        variantOverrides,
                         new HashSet<>(),
                         0,
                         sourceFilter
@@ -126,19 +149,49 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                 root
         );
     }
-
     private static CraftScopeRecipeNode resolveNode(
             ItemStack requestedStack,
             int requestedCount,
             List<ItemStack> acceptedVariants,
             String nodePath,
             Map<String, ResourceLocation> recipeOverrides,
+            Map<String, ResourceLocation> ingredientVariantOverrides,
             Set<String> activePath,
             int depth,
             String sourceFilter
     ) {
         ItemStack stack =
                 requestedStack.copy();
+
+        boolean selectableIngredientChoice =
+                isSelectableIngredientChoice(
+                        acceptedVariants
+                );
+
+        boolean explicitIngredientChoice =
+                selectableIngredientChoice
+                        && hasValidIngredientSelection(
+                        nodePath,
+                        acceptedVariants,
+                        ingredientVariantOverrides
+                );
+
+        /*
+         * Do not invent an acquisition path before the player chooses
+         * between genuinely different ingredient strategies.
+         *
+         * Leather OR Cardboard therefore stops here as a choice node.
+         * Once the player chooses one, only that branch is expanded.
+         */
+        if (selectableIngredientChoice
+                && !explicitIngredientChoice) {
+
+            return createIngredientChoice(
+                    stack,
+                    requestedCount,
+                    acceptedVariants
+            );
+        }
 
         String itemKey =
                 getItemKey(
@@ -151,7 +204,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             return createLeaf(
                     stack,
                     requestedCount,
-                    acceptedVariants
+                    acceptedVariants,
+                    selectableIngredientChoice,
+                    explicitIngredientChoice
             );
         }
 
@@ -166,7 +221,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             return createLeaf(
                     stack,
                     requestedCount,
-                    acceptedVariants
+                    acceptedVariants,
+                    selectableIngredientChoice,
+                    explicitIngredientChoice
             );
         }
 
@@ -187,7 +244,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             return createLeaf(
                     stack,
                     requestedCount,
-                    acceptedVariants
+                    acceptedVariants,
+                    selectableIngredientChoice,
+                    explicitIngredientChoice
             );
         }
 
@@ -210,7 +269,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
             return createLeaf(
                     stack,
                     requestedCount,
-                    acceptedVariants
+                    acceptedVariants,
+                    selectableIngredientChoice,
+                    explicitIngredientChoice
             );
         }
 
@@ -252,7 +313,9 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                         true,
                         acceptedVariants,
                         preferredChoiceId,
-                        alternativeChoiceIds
+                        alternativeChoiceIds,
+                        selectableIngredientChoice,
+                        explicitIngredientChoice
                 );
 
         activePath.add(
@@ -287,13 +350,13 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                             input
                     );
 
-            ItemStack representative =
+            ItemStack stableRepresentative =
                     getRepresentativeStack(
                             input,
                             variants
                     );
 
-            if (representative.isEmpty()) {
+            if (stableRepresentative.isEmpty()) {
                 continue;
             }
 
@@ -308,14 +371,28 @@ public final class CraftScopeProductionRecipeTreeBuilder {
                             .getChildren()
                             .size();
 
+            /*
+             * The saved node path must not change when the player
+             * switches Cardboard -> Leather. Use the first accepted
+             * variant as the stable path identity and use a separate
+             * active stack for recursive expansion.
+             */
             String childPath =
                     nodePath
                             + "/"
                             + childIndex
                             + ":"
                             + getItemKey(
-                                    representative
+                                    stableRepresentative
                             );
+
+            ItemStack activeRepresentative =
+                    getSelectedIngredientStack(
+                            childPath,
+                            variants,
+                            stableRepresentative,
+                            ingredientVariantOverrides
+                    );
 
             /*
              * Recipe Source is intentionally root-only.
@@ -323,13 +400,14 @@ public final class CraftScopeProductionRecipeTreeBuilder {
              */
             CraftScopeRecipeNode child =
                     resolveNode(
-                            representative,
+                            activeRepresentative,
                             clampToInt(requiredAmount),
                             variants.isEmpty()
-                                    ? List.of(representative)
+                                    ? List.of(activeRepresentative)
                                     : variants,
                             childPath,
                             recipeOverrides,
+                            ingredientVariantOverrides,
                             activePath,
                             depth + 1,
                             null
@@ -751,6 +829,127 @@ public final class CraftScopeProductionRecipeTreeBuilder {
         return route.id();
     }
 
+    private static boolean isSelectableIngredientChoice(
+            List<ItemStack> acceptedVariants
+    ) {
+        return acceptedVariants != null
+                && acceptedVariants.size() > 1
+                && !CraftScopeRecipeVariantFamilyPolicy
+                .isEquivalentIngredientFamily(
+                        acceptedVariants
+                );
+    }
+
+    private static boolean hasValidIngredientSelection(
+            String nodePath,
+            List<ItemStack> variants,
+            Map<String, ResourceLocation> ingredientVariantOverrides
+    ) {
+        if (nodePath == null
+                || variants == null
+                || variants.isEmpty()
+                || ingredientVariantOverrides == null
+                || ingredientVariantOverrides.isEmpty()) {
+
+            return false;
+        }
+
+        ResourceLocation selected =
+                ingredientVariantOverrides.get(
+                        nodePath
+                );
+
+        if (selected == null) {
+            return false;
+        }
+
+        for (ItemStack variant :
+                variants) {
+
+            if (variant == null
+                    || variant.isEmpty()) {
+
+                continue;
+            }
+
+            ResourceLocation variantId =
+                    BuiltInRegistries.ITEM.getKey(
+                            variant.getItem()
+                    );
+
+            if (selected.equals(
+                    variantId
+            )) {
+
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static ItemStack getSelectedIngredientStack(
+            String nodePath,
+            List<ItemStack> variants,
+            ItemStack fallback,
+            Map<String, ResourceLocation> ingredientVariantOverrides
+    ) {
+        if (!hasValidIngredientSelection(
+                nodePath,
+                variants,
+                ingredientVariantOverrides
+        )) {
+
+            return fallback.copy();
+        }
+
+        ResourceLocation selected =
+                ingredientVariantOverrides.get(
+                        nodePath
+                );
+
+        for (ItemStack variant :
+                variants) {
+
+            if (variant == null
+                    || variant.isEmpty()) {
+
+                continue;
+            }
+
+            ResourceLocation variantId =
+                    BuiltInRegistries.ITEM.getKey(
+                            variant.getItem()
+                    );
+
+            if (selected.equals(
+                    variantId
+            )) {
+
+                return variant.copy();
+            }
+        }
+
+        return fallback.copy();
+    }
+
+    private static CraftScopeRecipeNode createIngredientChoice(
+            ItemStack stack,
+            int requiredCount,
+            List<ItemStack> acceptedVariants
+    ) {
+        return new CraftScopeRecipeNode(
+                stack,
+                requiredCount,
+                0,
+                false,
+                acceptedVariants,
+                null,
+                List.of(),
+                true,
+                false
+        );
+    }
     private static ItemStack getRepresentativeStack(
             CraftScopeResourceAmount resource,
             List<ItemStack> variants
@@ -845,14 +1044,20 @@ public final class CraftScopeProductionRecipeTreeBuilder {
     private static CraftScopeRecipeNode createLeaf(
             ItemStack stack,
             int requiredCount,
-            List<ItemStack> acceptedVariants
+            List<ItemStack> acceptedVariants,
+            boolean selectableIngredientAlternatives,
+            boolean explicitIngredientVariantSelection
     ) {
         return new CraftScopeRecipeNode(
                 stack,
                 requiredCount,
                 0,
                 false,
-                acceptedVariants
+                acceptedVariants,
+                null,
+                List.of(),
+                selectableIngredientAlternatives,
+                explicitIngredientVariantSelection
         );
     }
 

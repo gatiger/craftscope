@@ -315,9 +315,12 @@ public final class CraftScopeProductionRouteExpander {
         );
 
         CraftScopeProductionStep currentStep =
-                route
-                        .steps()
-                        .getFirst();
+                applySelectedIngredientVariants(
+                        route
+                                .steps()
+                                .getFirst(),
+                        recipeSelections
+                );
 
         List<ExpansionCandidate> candidates =
                 findAllExpandableInputs(
@@ -446,7 +449,12 @@ public final class CraftScopeProductionRouteExpander {
         nextVisited.add(targetId);
 
         CraftScopeProductionStep currentStep =
-                route.steps().getFirst();
+                applySelectedIngredientVariants(
+                        route
+                                .steps()
+                                .getFirst(),
+                        recipeSelections
+                );
 
         /*
          * A step may contain several consumed inputs.
@@ -731,6 +739,45 @@ public final class CraftScopeProductionRouteExpander {
             return null;
         }
 
+        ResourceLocation selectedIngredientVariant =
+                getSelectedIngredientVariantForInput(
+                        input,
+                        recipeSelections
+                );
+
+        if (CraftScopeIngredientVariantSelection.isUnresolved(
+                selectedIngredientVariant
+        )) {
+            /*
+             * This is a genuine OR choice and the player has not
+             * chosen a production strategy yet.
+             */
+            return null;
+        }
+
+        if (selectedIngredientVariant != null) {
+
+            candidatesById
+                    .entrySet()
+                    .removeIf(
+                            entry ->
+                                    !selectedIngredientVariant.equals(
+                                            entry
+                                                    .getValue()
+                                                    .targetOutput()
+                                                    .id()
+                                    )
+                    );
+
+            /*
+             * Never silently fall back to Cardboard after the player
+             * explicitly chose Leather, or vice versa.
+             */
+            if (candidatesById.isEmpty()) {
+                return null;
+            }
+        }
+
         /*
          * Recipe Tree is authoritative. If the player selected a
          * recipe for this intermediate item, use the route that
@@ -800,6 +847,202 @@ public final class CraftScopeProductionRouteExpander {
                 );
     }
 
+    public static CraftScopeProductionRoute applyIngredientSelections(
+            CraftScopeProductionRoute route,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (route == null
+                || route.steps().isEmpty()
+                || recipeSelections == null
+                || recipeSelections.isEmpty()) {
+
+            return route;
+        }
+
+        boolean changed =
+                false;
+
+        List<CraftScopeProductionStep> steps =
+                new ArrayList<>();
+
+        for (CraftScopeProductionStep step :
+                route.steps()) {
+
+            CraftScopeProductionStep selectedStep =
+                    applySelectedIngredientVariants(
+                            step,
+                            recipeSelections
+                    );
+
+            steps.add(
+                    selectedStep
+            );
+
+            if (selectedStep != step) {
+                changed =
+                        true;
+            }
+        }
+
+        if (!changed) {
+            return route;
+        }
+
+        return new CraftScopeProductionRoute(
+                route.id(),
+                route.sourceModId(),
+                route.sourceModName(),
+                route.displayName(),
+                route.targetOutput(),
+                steps,
+                route.priority()
+        );
+    }
+    private static ResourceLocation
+    getSelectedIngredientVariantForInput(
+            CraftScopeResourceAmount input,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (input == null
+                || recipeSelections == null
+                || recipeSelections.isEmpty()) {
+
+            return null;
+        }
+
+        for (ResourceLocation variantId :
+                input.acceptedVariantIds()) {
+
+            ResourceLocation key =
+                    CraftScopeIngredientVariantSelection.keyFor(
+                            variantId
+                    );
+
+            if (key == null) {
+                continue;
+            }
+
+            ResourceLocation selected =
+                    recipeSelections.get(
+                            key
+                    );
+
+            if (selected != null) {
+                return selected;
+            }
+        }
+
+        return null;
+    }
+
+    private static CraftScopeProductionStep
+    applySelectedIngredientVariants(
+            CraftScopeProductionStep step,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (step == null
+                || step.inputs().isEmpty()
+                || recipeSelections == null
+                || recipeSelections.isEmpty()) {
+
+            return step;
+        }
+
+        boolean changed =
+                false;
+
+        List<CraftScopeResourceAmount> inputs =
+                new ArrayList<>();
+
+        for (CraftScopeResourceAmount input :
+                step.inputs()) {
+
+            CraftScopeResourceAmount selected =
+                    applySelectedIngredientVariant(
+                            input,
+                            recipeSelections
+                    );
+
+            inputs.add(
+                    selected
+            );
+
+            if (selected != input) {
+                changed =
+                        true;
+            }
+        }
+
+        if (!changed) {
+            return step;
+        }
+
+        return new CraftScopeProductionStep(
+                step.id(),
+                step.displayName(),
+                inputs,
+                step.outputs(),
+                step.methods()
+        );
+    }
+
+    private static CraftScopeResourceAmount
+    applySelectedIngredientVariant(
+            CraftScopeResourceAmount resource,
+            Map<ResourceLocation, ResourceLocation> recipeSelections
+    ) {
+        if (resource == null
+                || resource.kind()
+                != CraftScopeResourceKind.ITEM
+                || resource.acceptedVariantIds().size() <= 1) {
+
+            return resource;
+        }
+
+        ResourceLocation selected =
+                getSelectedIngredientVariantForInput(
+                        resource,
+                        recipeSelections
+                );
+
+        if (selected == null
+                || CraftScopeIngredientVariantSelection.isUnresolved(
+                selected
+        )
+                || !resource.accepts(
+                selected
+        )) {
+
+            return resource;
+        }
+
+        ItemStack stack =
+                getItemStack(
+                        selected
+                );
+
+        Component displayName =
+                stack.isEmpty()
+                        ? resource.displayName()
+                        : stack.getHoverName();
+
+        return new CraftScopeResourceAmount(
+                resource.kind(),
+                selected,
+                displayName,
+                resource.amount(),
+                resource.unit(),
+                resource.consumed(),
+                resource.chance(),
+                List.of(
+                        selected
+                ),
+                resource.minimumAmount(),
+                resource.maximumAmount(),
+                resource.expectedAmount(),
+                null
+        );
+    }
     private static ResourceLocation getSelectedRecipeForInput(
             CraftScopeResourceAmount input,
             Map<ResourceLocation, ResourceLocation> recipeSelections

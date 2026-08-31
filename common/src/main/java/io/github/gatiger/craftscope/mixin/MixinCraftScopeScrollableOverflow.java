@@ -7,11 +7,13 @@ import io.github.gatiger.craftscope.production.CraftScopeProductionSummary;
 import io.github.gatiger.craftscope.production.CraftScopeRequirementKind;
 import io.github.gatiger.craftscope.production.CraftScopeResourceAmount;
 import io.github.gatiger.craftscope.ui.CraftScopeMarqueeContext;
+import io.github.gatiger.craftscope.ui.CraftScopeProductionRouteTreeModel;
 import io.github.gatiger.craftscope.ui.CraftScopeUiTheme;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.world.item.ItemStack;
+import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.Unique;
@@ -22,6 +24,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.List;
+import java.util.Set;
 
 /*
  * First general overflow-scrolling pass for CraftScope.
@@ -92,6 +95,10 @@ public abstract class MixinCraftScopeScrollableOverflow {
     @Shadow
     private int selectedDiagramNodeIndex;
 
+    @Shadow
+    @Final
+    private Set<String> expandedProductionRouteSources;
+
     /*
      * Which view was rendered most recently.
      *
@@ -160,6 +167,32 @@ public abstract class MixinCraftScopeScrollableOverflow {
             CraftScopeProductionRoute route
     );
 
+    /*
+     * Shared hierarchical Production Routes helpers from
+     * CraftScopeProjectScreen.
+     */
+    @Invoker("getProductionRouteTreeRows")
+    protected abstract List<CraftScopeProductionRouteTreeModel.Row>
+    craftscope$invokeGetProductionRouteTreeRows();
+
+    @Invoker("toggleProductionRouteSource")
+    protected abstract void craftscope$invokeToggleProductionRouteSource(
+            String sourceId
+    );
+
+
+    @Invoker("ensureSelectedProductionRouteSourceExpanded")
+    protected abstract void craftscope$invokeEnsureSelectedProductionRouteSourceExpanded();
+
+    @Invoker("selectProductionProcessContext")
+    protected abstract void craftscope$invokeSelectProductionProcessContext(
+            String sourceId,
+            net.minecraft.resources.ResourceLocation processId,
+            int routeIndex
+    );
+
+    @Invoker("getSelectedProductionRoute")
+    protected abstract CraftScopeProductionRoute craftscope$invokeGetSelectedProductionRoute();
     @Invoker("renderSetupEmptyMessage")
     protected abstract void craftscope$invokeRenderSetupEmptyMessage(
             GuiGraphics graphics,
@@ -311,10 +344,14 @@ public abstract class MixinCraftScopeScrollableOverflow {
                         viewportBottom - rowTop
                 );
 
-        int contentHeight =
+        List<CraftScopeProductionRouteTreeModel.Row> rows =
                 productionRoutes == null
-                        ? 0
-                        : productionRoutes.size()
+                        || productionRoutes.isEmpty()
+                        ? List.of()
+                        : craftscope$invokeGetProductionRouteTreeRows();
+
+        int contentHeight =
+                rows.size()
                         * rowHeight;
 
         craftscope$productionRouteMaxScroll =
@@ -346,9 +383,7 @@ public abstract class MixinCraftScopeScrollableOverflow {
             return;
         }
 
-        if (productionRoutes == null
-                || productionRoutes.isEmpty()) {
-
+        if (rows.isEmpty()) {
             graphics.drawString(
                     font,
                     "No production routes",
@@ -379,12 +414,19 @@ public abstract class MixinCraftScopeScrollableOverflow {
                 rowTop
                         - (int) craftscope$productionRouteScroll;
 
-        for (int i = 0;
-             i < productionRoutes.size();
-             i++) {
+        for (int rowIndex = 0;
+             rowIndex < rows.size();
+             rowIndex++) {
+
+            CraftScopeProductionRouteTreeModel.Row row =
+                    rows.get(
+                            rowIndex
+                    );
 
             int rowY =
-                    y + i * rowHeight;
+                    y
+                            + rowIndex
+                            * rowHeight;
 
             if (rowY + rowHeight < rowTop
                     || rowY > viewportBottom) {
@@ -392,16 +434,47 @@ public abstract class MixinCraftScopeScrollableOverflow {
                 continue;
             }
 
-            CraftScopeProductionRoute route =
-                    productionRoutes.get(i);
+            if (row.isSource()) {
+                graphics.drawString(
+                        font,
+                        row.expanded()
+                                ? "-"
+                                : "+",
+                        left + 8,
+                        rowY + 6,
+                        row.containsSelected()
+                                ? CraftScopeUiTheme.ACCENT
+                                : CraftScopeUiTheme.TEXT_SECONDARY
+                );
+
+                String groupLabel =
+                        row.sourceName()
+                                + " ("
+                                + row.processCount()
+                                + ")";
+
+                graphics.drawString(
+                        font,
+                        craftscope$invokeFitText(
+                                groupLabel,
+                                right - left - 28
+                        ),
+                        left + 20,
+                        rowY + 6,
+                        row.containsSelected()
+                                ? CraftScopeUiTheme.TEXT_PRIMARY
+                                : CraftScopeUiTheme.TEXT_SECONDARY
+                );
+
+                continue;
+            }
 
             boolean selected =
-                    i == selectedProductionRouteIndex;
+                    row.selected();
 
             if (selected) {
-
                 graphics.fill(
-                        left + 4,
+                        left + 12,
                         rowY,
                         right - 5,
                         rowY + rowHeight - 2,
@@ -410,7 +483,7 @@ public abstract class MixinCraftScopeScrollableOverflow {
 
                 CraftScopeUiTheme.drawBorder(
                         graphics,
-                        left + 4,
+                        left + 12,
                         rowY,
                         right - 5,
                         rowY + rowHeight - 2,
@@ -419,46 +492,38 @@ public abstract class MixinCraftScopeScrollableOverflow {
             }
 
             String fullLabel =
-                    craftscope$invokeGetProductionRouteLabel(
-                            route
-                    );
+                    row.displayName() == null
+                            ? ""
+                            : row.displayName();
 
             String label;
 
             if (selected) {
-
                 CraftScopeMarqueeContext.begin();
 
                 try {
-
                     label =
                             craftscope$invokeFitText(
                                     fullLabel,
-                                    right - left - 20
+                                    right - left - 34
                             );
-
                 } finally {
-
                     CraftScopeMarqueeContext.end();
                 }
 
             } else {
 
-                /*
-                 * Non-selected rows remain still and use CraftScope's
-                 * ordinary ellipsis behavior.
-                 */
                 label =
                         craftscope$invokeFitText(
                                 fullLabel,
-                                right - left - 20
+                                right - left - 34
                         );
             }
 
             graphics.drawString(
                     font,
                     label,
-                    left + 9,
+                    left + 20,
                     rowY + 6,
                     selected
                             ? CraftScopeUiTheme.TEXT_PRIMARY
@@ -478,7 +543,6 @@ public abstract class MixinCraftScopeScrollableOverflow {
                 craftscope$productionRouteMaxScroll
         );
     }
-
     /*
      * The original click handler assumes row zero is always the
      * first visible route. Account for scroll before it gets a
@@ -550,7 +614,8 @@ public abstract class MixinCraftScopeScrollableOverflow {
                 );
 
         if (mouseX < left + 4
-                || mouseX >= left
+                || mouseX
+                >= left
                 + leftColumnWidth
                 - 4
                 || mouseY < rowTop
@@ -559,7 +624,10 @@ public abstract class MixinCraftScopeScrollableOverflow {
             return;
         }
 
-        int clickedIndex =
+        List<CraftScopeProductionRouteTreeModel.Row> rows =
+                craftscope$invokeGetProductionRouteTreeRows();
+
+        int clickedRowIndex =
                 (int) (
                         (
                                 mouseY
@@ -569,33 +637,94 @@ public abstract class MixinCraftScopeScrollableOverflow {
                                 / rowHeight
                 );
 
-        if (clickedIndex < 0
-                || clickedIndex >= productionRoutes.size()) {
+        if (clickedRowIndex < 0
+                || clickedRowIndex >= rows.size()) {
 
-            cir.setReturnValue(false);
+            cir.setReturnValue(
+                    false
+            );
+
             return;
         }
 
-        selectedProductionRouteIndex =
-                clickedIndex;
+        CraftScopeProductionRouteTreeModel.Row row =
+                rows.get(
+                        clickedRowIndex
+                );
 
-        selectedDiagramNodeIndex =
-                -1;
+        if (row.isSource()) {
+            craftscope$invokeToggleProductionRouteSource(
+                    row.sourceId()
+            );
+
+            cir.setReturnValue(
+                    true
+            );
+
+            return;
+        }
+
+
+        if (!row.isRoute()
+                || row.processId() == null) {
+
+            cir.setReturnValue(
+                    false
+            );
+
+            return;
+        }
+
+        craftscope$invokeSelectProductionProcessContext(
+                row.sourceId(),
+                row.processId(),
+                row.routeIndex()
+        );
+
+        List<CraftScopeProductionRouteTreeModel.Row> updatedRows =
+                craftscope$invokeGetProductionRouteTreeRows();
+
+        int selectedRowIndex =
+                clickedRowIndex;
+
+        for (int i = 0;
+             i < updatedRows.size();
+             i++) {
+
+            CraftScopeProductionRouteTreeModel.Row candidate =
+                    updatedRows.get(
+                            i
+                    );
+
+            if (candidate.isRoute()
+                    && row.sourceId().equals(
+                    candidate.sourceId()
+            )
+                    && row.processId().equals(
+                    candidate.processId()
+            )) {
+
+                selectedRowIndex =
+                        i;
+
+                break;
+            }
+        }
 
         /*
-         * Keep the selected route visible even if its row was only
-         * partially inside the viewport.
+         * Keep the selected tree row visible.
          */
         craftscope$ensureRowVisible(
-                clickedIndex,
+                selectedRowIndex,
                 rowHeight,
                 viewportBottom - rowTop,
                 true
         );
 
-        cir.setReturnValue(true);
+        cir.setReturnValue(
+                true
+        );
     }
-
     /*
      * ---------------------------------------------------------
      * Setup -> Required Machines

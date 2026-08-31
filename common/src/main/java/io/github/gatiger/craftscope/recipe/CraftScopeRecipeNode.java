@@ -20,22 +20,35 @@ public class CraftScopeRecipeNode {
     private final List<CraftScopeRecipeNode> children =
             new ArrayList<>();
 
-    /*
-     * Recipe-selection metadata.
-     *
-     * preferredRecipeId:
-     *   The recipe CraftScope currently considers the default.
-     *
-     * alternativeRecipeIds:
-     *   Other valid recipes for producing this same item.
-     *
-     * For now these are just stored as recipe IDs.
-     * The resolver will populate them in the next stage.
-     */
     private final ResourceLocation preferredRecipeId;
 
     private final List<ResourceLocation> alternativeRecipeIds =
             new ArrayList<>();
+
+    /*
+     * Ingredient alternatives are different from equivalent families.
+     *
+     * Equivalent family:
+     *   Any Log / Any Planks / Red or Brown Mushroom
+     *
+     * Selectable alternative:
+     *   Leather OR Cardboard
+     *
+     * A selectable alternative keeps every accepted stack for
+     * inventory matching, but only the explicitly selected stack
+     * is allowed to drive recursive production expansion.
+     */
+    private final boolean selectableIngredientAlternatives;
+
+    /*
+     * false:
+     *   CraftScope is waiting for the player to choose an alternative.
+     *
+     * true:
+     *   stack is the persisted active alternative and the other
+     *   alternatives are hidden from the active production branch.
+     */
+    private final boolean explicitIngredientVariantSelection;
 
     public CraftScopeRecipeNode(
             ItemStack stack,
@@ -50,7 +63,9 @@ public class CraftScopeRecipeNode {
                 craftable,
                 List.of(stack),
                 null,
-                List.of()
+                List.of(),
+                false,
+                false
         );
     }
 
@@ -68,7 +83,9 @@ public class CraftScopeRecipeNode {
                 craftable,
                 acceptedVariants,
                 null,
-                List.of()
+                List.of(),
+                false,
+                false
         );
     }
 
@@ -81,35 +98,88 @@ public class CraftScopeRecipeNode {
             ResourceLocation preferredRecipeId,
             List<ResourceLocation> alternativeRecipeIds
     ) {
-        this.stack = stack.copy();
-        this.requiredCount = requiredCount;
-        this.craftsNeeded = craftsNeeded;
-        this.craftable = craftable;
-        this.preferredRecipeId = preferredRecipeId;
+        this(
+                stack,
+                requiredCount,
+                craftsNeeded,
+                craftable,
+                acceptedVariants,
+                preferredRecipeId,
+                alternativeRecipeIds,
+                false,
+                false
+        );
+    }
 
-        for (ItemStack variant : acceptedVariants) {
-            if (variant != null && !variant.isEmpty()) {
-                this.acceptedVariants.add(
-                        variant.copy()
-                );
+    public CraftScopeRecipeNode(
+            ItemStack stack,
+            int requiredCount,
+            int craftsNeeded,
+            boolean craftable,
+            List<ItemStack> acceptedVariants,
+            ResourceLocation preferredRecipeId,
+            List<ResourceLocation> alternativeRecipeIds,
+            boolean selectableIngredientAlternatives,
+            boolean explicitIngredientVariantSelection
+    ) {
+        this.stack =
+                stack == null
+                        ? ItemStack.EMPTY
+                        : stack.copy();
+
+        this.requiredCount =
+                requiredCount;
+
+        this.craftsNeeded =
+                craftsNeeded;
+
+        this.craftable =
+                craftable;
+
+        this.preferredRecipeId =
+                preferredRecipeId;
+
+        if (acceptedVariants != null) {
+            for (ItemStack variant :
+                    acceptedVariants) {
+
+                if (variant != null
+                        && !variant.isEmpty()) {
+
+                    this.acceptedVariants.add(
+                            variant.copy()
+                    );
+                }
             }
         }
 
         if (this.acceptedVariants.isEmpty()
-                && !stack.isEmpty()) {
+                && !this.stack.isEmpty()) {
 
             this.acceptedVariants.add(
-                    stack.copy()
+                    this.stack.copy()
             );
         }
 
         if (alternativeRecipeIds != null) {
-            for (ResourceLocation id : alternativeRecipeIds) {
+            for (ResourceLocation id :
+                    alternativeRecipeIds) {
+
                 if (id != null) {
-                    this.alternativeRecipeIds.add(id);
+                    this.alternativeRecipeIds.add(
+                            id
+                    );
                 }
             }
         }
+
+        this.selectableIngredientAlternatives =
+                selectableIngredientAlternatives
+                        && this.acceptedVariants.size() > 1;
+
+        this.explicitIngredientVariantSelection =
+                this.selectableIngredientAlternatives
+                        && explicitIngredientVariantSelection;
     }
 
     public ItemStack getStack() {
@@ -131,11 +201,17 @@ public class CraftScopeRecipeNode {
     public void addChild(
             CraftScopeRecipeNode child
     ) {
-        children.add(child);
+        if (child != null) {
+            children.add(
+                    child
+            );
+        }
     }
 
     public List<CraftScopeRecipeNode> getChildren() {
-        return Collections.unmodifiableList(children);
+        return Collections.unmodifiableList(
+                children
+        );
     }
 
     public boolean isLeaf() {
@@ -151,11 +227,25 @@ public class CraftScopeRecipeNode {
         List<ItemStack> result =
                 new ArrayList<>();
 
-        for (ItemStack stack : acceptedVariants) {
-            result.add(stack.copy());
+        for (ItemStack variant :
+                acceptedVariants) {
+
+            result.add(
+                    variant.copy()
+            );
         }
 
-        return Collections.unmodifiableList(result);
+        return Collections.unmodifiableList(
+                result
+        );
+    }
+
+    public boolean hasSelectableIngredientAlternatives() {
+        return selectableIngredientAlternatives;
+    }
+
+    public boolean hasExplicitIngredientVariantSelection() {
+        return explicitIngredientVariantSelection;
     }
 
     public ResourceLocation getPreferredRecipeId() {
@@ -177,10 +267,13 @@ public class CraftScopeRecipeNode {
     }
 
     public int getTotalRecipeCount() {
-        if (!craftable || preferredRecipeId == null) {
+        if (!craftable
+                || preferredRecipeId == null) {
+
             return 0;
         }
 
-        return 1 + alternativeRecipeIds.size();
+        return 1
+                + alternativeRecipeIds.size();
     }
 }
